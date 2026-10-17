@@ -76,6 +76,23 @@ DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List every obje
 Answer ONLY with JSON: {"objects_on_desk": ["..."]}"""
 
 
+RU_OBJECTS = [("money bundle", "пачка денег"), ("banknotes", "купюры"), ("banknote", "купюра"), ("money", "деньги"),
+              ("cash", "наличные"), ("bundle", "пачка"), ("mobile phone", "мобильный телефон"), ("smartphone", "смартфон"),
+              ("tablet", "планшет"), ("cup", "чашка"), ("mug", "кружка"), ("bottle", "бутылка"), ("handbag", "сумка"),
+              ("bag", "сумка"), ("envelope", "конверт"), ("documents", "документы"), ("document", "документ"),
+              ("papers", "бумаги"), ("paper", "бумага"), ("keys", "ключи"), ("key", "ключ"), ("wallet", "кошелёк"),
+              ("notebook", "блокнот"), ("folder", "папка"), ("box", "коробка"), ("coat", "верхняя одежда"),
+              ("jacket", "куртка"), ("food", "еда"), ("drink", "напиток"), ("green object", "зелёный предмет"),
+              ("white object", "белый предмет"), ("black object", "чёрный предмет"), ("object", "предмет")]
+
+
+def to_russian(name: str) -> str:
+    for en, ru in RU_OBJECTS:
+        if en in name:
+            return ru
+    return name
+
+
 def _crop(frame: Frame, box: list[float] | None, margin: float = 0.06, scale: int = 2):
     if not box:
         return frame.image
@@ -96,12 +113,15 @@ def check_left_behind(frame: Frame, extra: Frame | None = None) -> dict:
         js = vlm.parse_json(vlm.ask([_crop(fr, desk)], DESK_PROMPT, max_tokens=90, kind=kind))
         found = js.get("objects_on_desk") if isinstance(js, dict) else js
         objs += found if isinstance(found, list) else ([str(found)] if found else [])
-    # Anything that is not standard desk equipment counts as left behind.
+    # Anything that is not standard desk equipment counts as left behind ("phone" alone = the desk phone).
     suspicious = []
     for o in objs:
         s = re.sub(r"\(.*?\)", "", str(o).lower()).strip()
-        if s and not any(w in s for w in STANDARD_EQUIPMENT) and s not in suspicious:
-            suspicious.append(s)
+        if s in ("phone", "telephone", "phones"):
+            continue
+        ru = to_russian(s)
+        if s and not any(w in s for w in STANDARD_EQUIPMENT) and ru not in suspicious:
+            suspicious.append(ru)
     screen = None
     lap = vlm.parse_bbox(vlm.ask([frame.image], LOCATE_LAPTOP, max_tokens=40))
     if lap:
@@ -225,7 +245,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80)) or {}
             found = js.get("objects_on_desk")
             objs = [str(o).lower() for o in found] if isinstance(found, list) else []
-            money = [o for o in objs if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
+            money = [to_russian(o) for o in objs if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
                      and not any(w in o for w in ("machine", "counter", "bag", "sack"))]
             log.info("entry at %.1fs: %s", ts[i], objs)
             if money:
