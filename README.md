@@ -204,3 +204,30 @@ curl https://<адрес>/api/v1/jobs/3f2a9c1e0b11 -H "X-API-Key: <ключ>"
 Датасет и тестовые видео используются только в рамках хакатона: видео и веса моделей не хранятся в репозитории
 (`.gitignore`), видео из API удаляются после обработки, видео из интерфейса — через час. Распознавание и
 идентификация лиц не используются.
+
+## Запуск на Windows и других системах (режим `openai`)
+
+На Mac модели работают через MLX. На Windows, Linux и в любой другой среде модель запускается отдельным локальным
+сервером (llama.cpp `llama-server` или Ollama), а сервис обращается к нему по `http://127.0.0.1`. Остальной код тот же.
+
+| Переменная | Значение |
+|---|---|
+| `VLM_BACKEND` | `mlx` (по умолчанию) или `openai` |
+| `VLM_URL` | адрес сканера, по умолчанию `http://127.0.0.1:8081` |
+| `JUDGE_URL` | адрес эксперта 8B; пусто = сканер работает один (на 8 ГБ видеопамяти обе модели одновременно не влезут) |
+| `VLM_API_MODEL`, `JUDGE_API_MODEL` | имена моделей в запросе, по умолчанию `qwen3-vl-4b`, `qwen3-vl-8b` |
+| `SEC_PER_FRAME`, `DEPARTURE_SEC`, `ENTRY_SEC`, `WINDOW_SEC`, `JUDGE_SEC` | замеренные на этой машине времена (`scripts/bench_vlm.py`), от них зависит число кадров в бюджете |
+
+Адреса не из `localhost` отклоняются: кадры не должны покидать эту машину.
+
+```powershell
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe fastapi "uvicorn[standard]" python-multipart av pillow numpy pyyaml httpx
+powershell -ExecutionPolicy Bypass -File scripts\download_gguf.ps1   # ~3,3 ГБ, один раз
+$env:LLAMA_SERVER = "C:\путь\к\llama-server.exe"
+powershell -ExecutionPolicy Bypass -File start.ps1
+```
+
+Туннель в `start.ps1` выключен по умолчанию, чтобы Windows не занял фиксированный адрес ngrok, пока им пользуется Mac.
+Качество и скорость на другой машине и с другими весами (GGUF Q4 вместо MLX 4-bit) нужно замерить заново:
+`scripts/jury_sim.py` на всех видео.

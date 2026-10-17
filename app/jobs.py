@@ -33,7 +33,8 @@ def _job_path(job_id: str) -> Path:
 
 def _save(job: dict) -> None:
     tmp = _job_path(job["job_id"]).with_suffix(".tmp")
-    tmp.write_text(json.dumps(job, ensure_ascii=False))
+    # Explicit UTF-8: the Windows default (cp1251) cannot store characters like "→" from the analysis log.
+    tmp.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
     tmp.replace(_job_path(job["job_id"]))
 
 
@@ -66,7 +67,7 @@ def get_job(job_id: str) -> dict | None:
     with _lock:
         job = _jobs.get(job_id)
         if job is None and _job_path(job_id).exists():
-            job = json.loads(_job_path(job_id).read_text())
+            job = json.loads(_job_path(job_id).read_text(encoding="utf-8"))
             _jobs[job_id] = job
         return dict(job) if job else None
 
@@ -75,7 +76,10 @@ def update_job(job_id: str, **fields) -> None:
     with _lock:
         job = _jobs[job_id]
         job.update(fields)
-        _save(job)
+        try:
+            _save(job)
+        except OSError as e:  # the in-memory job stays the source of truth; a disk problem must not kill the worker
+            log.error("could not save job %s: %s", job_id, e)
 
 
 def queue_length() -> int:
@@ -141,7 +145,7 @@ def _cleanup_loop() -> None:
 def start(analyze_fn) -> None:
     # Re-queue jobs that were interrupted by a restart.
     for p in sorted(config.JOB_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime):
-        job = json.loads(p.read_text())
+        job = json.loads(p.read_text(encoding="utf-8"))
         _jobs[job["job_id"]] = job
         if job["status"] == "processing":
             if Path(job["video_path"]).exists():

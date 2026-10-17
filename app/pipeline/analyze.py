@@ -581,12 +581,14 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
     }
 
 
-SEC_PER_FRAME = 3.4    # measured on MacBook Air M4 (Qwen3-VL-4B 4-bit, 640 px)
+# Defaults were measured on a MacBook Air M4 (Qwen3-VL 4-bit, MLX). On another machine measure with
+# scripts/bench_vlm.py and override through the environment.
+SEC_PER_FRAME = float(os.environ.get("SEC_PER_FRAME", "3.4"))    # Qwen3-VL-4B, 640 px
 MIN_FRAMES = 6         # the scanner always reads at least this many frames, whatever the budget
-DEPARTURE_SEC = 25.0   # desk zoom (4B + 8B) + laptop locate + screen read, measured
-ENTRY_SEC = 9.0        # two desk reads when someone walks in
-WINDOW_SEC = 11.0      # one second-look window with the 8B
-JUDGE_SEC = 25.0       # one judge call pair (verify + locate) with Qwen3-VL-8B, measured 15-25 s
+DEPARTURE_SEC = float(os.environ.get("DEPARTURE_SEC", "25.0"))   # desk zoom (4B + 8B) + laptop locate + screen read
+ENTRY_SEC = float(os.environ.get("ENTRY_SEC", "9.0"))            # two desk reads when someone walks in
+WINDOW_SEC = float(os.environ.get("WINDOW_SEC", "11.0"))         # one second-look window with the 8B
+JUDGE_SEC = float(os.environ.get("JUDGE_SEC", "25.0"))           # one judge call pair (verify + locate), 15-25 s
 CHECKS_RESERVE = DEPARTURE_SEC + ENTRY_SEC
 
 
