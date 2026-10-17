@@ -368,6 +368,11 @@ HYPOTHESIS = {
 }
 # For these types the scan already used a zoomed, targeted check; the judge refines but does not veto.
 NO_VETO = {"valuables_left", "unlocked_workstation"}
+# Escalation threshold: a scanner finding at or above this confidence is reported without asking the 8B again
+# (desk/laptop findings already used a zoomed, targeted check). Below it the 8B re-checks and may reject.
+ESCALATE_BELOW = float(os.environ.get("ESCALATE_BELOW", "0.7"))
+# The expert rejects a finding when it does not confirm it and its own plausibility is below this.
+REJECT_BELOW = float(os.environ.get("REJECT_BELOW", "0.35"))
 
 JUDGE_PROMPT = """You are checking a possible cash-handling violation in a bank cash room. The images are consecutive security-camera frames (about 2 seconds apart, in time order).
 Hypothesis: {hyp}
@@ -545,7 +550,8 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
     conf = ev["conf"]
     seen = ev["detail"]
     if j:
-        conf = 0.4 * ev["conf"] + 0.6 * j["plausibility"] if j["confirmed"] else min(ev["conf"], 0.45)
+        # Blend of the rule's strength and the expert's own number; an unconfirmed finding is pulled down by it.
+        conf = 0.4 * ev["conf"] + 0.6 * j["plausibility"] if j["confirmed"] else 0.5 * ev["conf"] * (0.5 + j["plausibility"])
         if j["seen"]:
             seen = f"{ev['detail']}. {j['seen']}" if ev["id"] in NO_VETO else j["seen"]
     conf = round(max(0.05, min(0.99, conf)), 2)
@@ -666,6 +672,12 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             stats["candidates"] += len(events)
         kept = []
         for ev in sorted(events, key=lambda e: -e["conf"]):
+            if ev["conf"] >= ESCALATE_BELOW and not ev.get("from_second_look"):
+                ev.setdefault("trace", []).append(
+                    f"Уверенность сканера {round(ev['conf'] * 100)}% ≥ порога эскалации {round(ESCALATE_BELOW * 100)}% → без перепроверки 8B")
+                note(f"Без эскалации (уверенность {round(ev['conf'] * 100)}%): {REGISTRY['violations'][ev['id']]['name']}", "rules")
+                kept.append(ev)
+                continue
             if time.time() + JUDGE_SEC > deadline:
                 kept.append(ev)  # no time left to re-check: keep the finding as is
                 continue
@@ -673,12 +685,10 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             note(f"Эскалация: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с) → Qwen3-VL-8B", "8B",
                  model="Qwen3-VL-8B", phase="judge", escalations=stats["escalations"], escalating=True)
             ev["judge"] = judge_event(ev, frames)
-            # Second-look findings already come from the expert model; the re-check adds the description and box
-            # but does not veto them (vetoing lost real violations in testing).
-            weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35
-            crowd_near = max([s_["people"] or 0 for s_ in states if abs(s_["t"] - ev["t"]) <= 3.0] or [0])
-            outsider_veto = ev.get("from_second_look") and ev["id"] == "outsider_in_cash_area" and crowd_near <= 2
-            if ev["id"] not in NO_VETO and (not ev.get("from_second_look") or outsider_veto) and weak:
+            # Any finding (including the second look) is dropped when the expert does not confirm it
+            # and its own plausibility is below REJECT_BELOW.
+            weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < REJECT_BELOW
+            if (ev["id"] not in NO_VETO or ev.get("from_second_look")) and weak:
                 log.info("judge rejected %s@%.1f", ev["id"], ev["t"])
                 note(f"Эксперт 8B отклонил: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с)", "8B")
                 stats["rejected"] += 1

@@ -47,6 +47,8 @@ uv pip install --python .venv fastapi "uvicorn[standard]" python-multipart av pi
 | `TIME_BUDGET_SEC` | 200 | бюджет анализа одного видео при пустой очереди |
 | `UI_BUDGET_SEC` | 120 | бюджет анализа видео, загруженного через сайт (задания API жюри идут первыми) |
 | `SKIP_UNCHANGED` / `CHANGE_THRESHOLD` | 1 / 5.0 | не перечитывать неизменившийся кадр |
+| `ESCALATE_BELOW` | 0.7 | находка сканера с уверенностью ≥ порога не эскалируется в 8B |
+| `REJECT_BELOW` | 0.35 | эксперт 8B отклоняет находку, если не подтвердил её и его оценка ниже порога |
 | `VLM_MODEL` / `JUDGE_MODEL` | `./models/…4B…`, `./models/…8B…` | пути к моделям сканера и эксперта |
 
 С сайта в очереди может ждать не больше одного видео (иначе 429). Тесты: `.venv/bin/python -m pytest -q tests`.
