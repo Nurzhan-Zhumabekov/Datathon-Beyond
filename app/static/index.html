@@ -314,55 +314,67 @@
   @media (max-width: 640px) { .row { border-radius: 28px; gap: 14px; padding: 14px; } .thumb { width: 56px; height: 56px; } .thumb svg { width: 24px; height: 24px; }
     .rbody h4 { font-size: 16px; } .rbody .meta { font-size: 13px; } .arrow { width: 38px; height: 38px; } }
 
-  /* ---------- liquid glass (CSS port of LiquidButton) with spring + magnetic motion ---------- */
-  .lg { position: relative; isolation: isolate; background: rgba(255,255,255,.035); border: 0; border-radius: 999px; color: #fff; box-shadow: none;
+  /* ---------- Apple-style liquid glass: clear, blurred, specular rim, faint prismatic edge ---------- */
+  .lg { position: relative; isolation: isolate; border: 0; border-radius: 999px; color: #fff;
+    background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.04));
+    -webkit-backdrop-filter: blur(14px) saturate(190%) brightness(1.08); backdrop-filter: blur(14px) saturate(190%) brightness(1.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.55),          /* bright top edge */
+      inset 0 -1px 0 rgba(255,255,255,.14),         /* soft bottom edge */
+      inset 1px 0 0 rgba(255,255,255,.18), inset -1px 0 0 rgba(255,255,255,.10),
+      inset 0 0 18px rgba(255,255,255,.06),         /* inner glow */
+      0 10px 30px -8px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.25);
     --s: 1; --mx: 0px; --my: 0px; --x: 50%; --y: 50%;
     transform: translate3d(var(--mx), var(--my), 0) scale(var(--s));
-    transition: transform .7s cubic-bezier(.34,1.56,.64,1), background .5s ease, filter .5s ease; will-change: transform; }
-  .lg::before { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 1; pointer-events: none;
-    box-shadow: 0 0 8px rgba(0,0,0,.03), 0 2px 6px rgba(0,0,0,.08),
-      inset 3px 3px .5px -3.5px rgba(255,255,255,.09), inset -3px -3px .5px -3.5px rgba(255,255,255,.85),
-      inset 1px 1px 1px -.5px rgba(255,255,255,.6), inset -1px -1px 1px -.5px rgba(255,255,255,.6),
-      inset 0 0 6px 6px rgba(255,255,255,.12), inset 0 0 2px 2px rgba(255,255,255,.06), 0 0 12px rgba(0,0,0,.15); }
-  .lg::after { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; overflow: hidden;
-    -webkit-backdrop-filter: blur(6px) saturate(1.4); backdrop-filter: url("#container-glass") blur(2px) saturate(1.4); }
+    transition: transform .7s cubic-bezier(.34,1.56,.64,1), background .5s ease, box-shadow .5s ease; will-change: transform; }
+  /* specular sheen across the top half */
+  .lg::before { content: ""; position: absolute; inset: 1px; border-radius: inherit; z-index: 1; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.28) 0%, rgba(255,255,255,.06) 42%, transparent 60%);
+    opacity: .8; }
+  /* faint prismatic rim, like light splitting at the glass edge */
+  .lg::after { content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: 1; pointer-events: none; padding: 1.2px;
+    background: conic-gradient(from 200deg, rgba(255,120,120,.55), rgba(255,214,120,.45), rgba(120,255,200,.4), rgba(110,170,255,.6),
+      rgba(200,130,255,.5), rgba(255,255,255,.7), rgba(255,120,120,.55));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    opacity: .35; transition: opacity .5s ease; }
   .lg > * { position: relative; z-index: 2; }
+  .nav-pill { padding: 10px 24px; gap: 26px !important; }
+  /* on the landing the bar itself stays clear: only the glass pills float over the content */
+  body[data-view="uploadView"].scrolled .nav { background: transparent; border-bottom-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  body[data-view="uploadView"] .brand { padding: 6px 12px 6px 8px; border-radius: 999px; }
+  .nav-pill:hover { --s: 1.02; }
+  .chip.lg { border: 0; background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03)); }
+  .chip.lg:hover { --s: 1.04; }
   .lg .glint { position: absolute; inset: 0; border-radius: inherit; z-index: 1; pointer-events: none; opacity: 0;
-    background: radial-gradient(140px circle at var(--x) var(--y), rgba(255,255,255,.26), rgba(255,255,255,.06) 40%, transparent 70%);
+    background: radial-gradient(120px circle at var(--x) var(--y), rgba(255,255,255,.30), rgba(255,255,255,.06) 45%, transparent 70%);
     transition: opacity .5s ease; mix-blend-mode: screen; }
-  .lg:hover { --s: 1.07; filter: brightness(1.08); background: rgba(255,255,255,.06); }
+  .lg:hover { --s: 1.06; background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.06)); }
+  .lg:hover::after { opacity: .7; }
   .lg:hover .glint { opacity: 1; }
   .lg:active { --s: .95; transition: transform .14s ease-out; }
-  .lg.blue { background: rgba(59,123,246,.55); }
-  .lg.blue:hover { background: rgba(59,123,246,.68); }
+  .lg.blue { background: linear-gradient(180deg, rgba(110,160,255,.55), rgba(59,123,246,.38)); }
+  .lg.blue:hover { background: linear-gradient(180deg, rgba(130,175,255,.65), rgba(59,123,246,.5)); }
+  .row:hover .arrow.lg { background: linear-gradient(180deg, rgba(110,160,255,.5), rgba(59,123,246,.32)); }
   @media (prefers-reduced-motion: reduce) { .lg, .row, .thumb { transition: background .3s; transform: none !important; } .lg .glint { display: none; } }
   .foot { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
   .note { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
 </style>
 </head>
 <body data-view="uploadView">
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-  <filter id="container-glass" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
-    <feTurbulence type="fractalNoise" baseFrequency="0.05 0.05" numOctaves="1" seed="1" result="turbulence">
-      <animate attributeName="baseFrequency" dur="9s" values="0.05 0.05;0.065 0.04;0.045 0.06;0.05 0.05" repeatCount="indefinite"/>
-    </feTurbulence>
-    <feGaussianBlur in="turbulence" stdDeviation="2" result="blurredNoise"/>
-    <feDisplacementMap in="SourceGraphic" in2="blurredNoise" scale="70" xChannelSelector="R" yChannelSelector="B" result="displaced"/>
-    <feGaussianBlur in="displaced" stdDeviation="4" result="finalBlur"/>
-    <feComposite in="finalBlur" in2="finalBlur" operator="over"/>
-  </filter></defs></svg>
+
 
 <div class="page">
   <header class="nav">
     <a class="brand" href="/" id="navNew"><span class="mark"><i></i><i></i><i></i><i></i><b></b></span><span>BEYOND</span></a>
-    <nav class="links">
+    <nav class="links lg nav-pill" data-pull="0.03">
       <a href="#how" id="navHow">Как это работает</a>
       <a href="#cases" id="navCases">Что находит</a>
       <a href="#recent" id="navRecent">Проверки</a>
     </nav>
     <div class="right">
-      <span class="chip"><i class="dot" id="dotApi"></i><span id="apiText">Сервис…</span></span>
-      <span class="chip q">Очередь <b id="queueText">—</b></span>
+      <span class="chip lg" data-pull="0.06"><i class="dot" id="dotApi"></i><span id="apiText">Сервис…</span></span>
+      <span class="chip q lg" data-pull="0.06">Очередь <b id="queueText">—</b></span>
       <button class="lg hidden" id="newBtn"><span>Новый анализ</span></button>
     </div>
   </header>
@@ -944,7 +956,7 @@ document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behav
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   document.querySelectorAll(".lg").forEach((el) => {
     const g = document.createElement("span"); g.className = "glint"; el.prepend(g);
-    const host = el.closest(".row") || el, pull = el.classList.contains("arrow") ? 0.35 : 0.18;
+    const host = el.closest(".row") || el, pull = el.dataset.pull ? +el.dataset.pull : el.classList.contains("arrow") ? 0.35 : 0.18;
     host.addEventListener("pointermove", (e) => {
       const r = el.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       el.style.setProperty("--x", x + "px"); el.style.setProperty("--y", y + "px");
