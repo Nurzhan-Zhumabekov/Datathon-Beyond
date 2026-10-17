@@ -16,7 +16,8 @@ Set-Location $PSScriptRoot
 New-Item -ItemType Directory -Force data | Out-Null
 
 Add-Type -Namespace Win -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
-[void][Win.Power]::SetThreadExecutionState(0x80000001)   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+# ES_CONTINUOUS | ES_SYSTEM_REQUIRED = 0x80000001; as a decimal UInt32, because PowerShell 5.1 reads the hex literal as a negative Int32
+[void][Win.Power]::SetThreadExecutionState([uint32]2147483649)
 
 $llama  = if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "llama-server" }
 $model  = if ($env:GGUF_MODEL)   { $env:GGUF_MODEL }   else { "models\Qwen3VL-4B-Instruct-Q4_K_M.gguf" }
