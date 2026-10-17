@@ -1021,6 +1021,11 @@ document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behav
     return c.toDataURL();
   }
 
+  // Chromatic dispersion (idea from the freefrontend "Distortion Card" demo): red, green and blue are displaced by
+  // slightly different amounts, so the rim shows a faint colour fringe, like light splitting in thick glass.
+  const SPLIT = [1, 1.14, 1.28], CH = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  function svgEl(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
   function build(el) {
     const r = el.getBoundingClientRect(), w = Math.round(el.offsetWidth || r.width), h = Math.round(el.offsetHeight || r.height);
     if (w < 12 || h < 12) return;
@@ -1029,22 +1034,37 @@ document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behav
     let id = el.dataset.lgf, f;
     if (!id) {
       id = "lgf" + counter++; el.dataset.lgf = id;
-      f = document.createElementNS(NS, "filter");
-      f.setAttribute("id", id); f.setAttribute("x", "0"); f.setAttribute("y", "0"); f.setAttribute("width", "1"); f.setAttribute("height", "1");
-      f.setAttribute("color-interpolation-filters", "sRGB");
-      const im = document.createElementNS(NS, "feImage");
-      im.setAttribute("result", "map"); im.setAttribute("preserveAspectRatio", "none");
-      const dm = document.createElementNS(NS, "feDisplacementMap");
-      dm.setAttribute("in", "SourceGraphic"); dm.setAttribute("in2", "map");
-      dm.setAttribute("xChannelSelector", "R"); dm.setAttribute("yChannelSelector", "G");
-      f.append(im, dm); defs.appendChild(f);
+      f = svgEl("filter", { id, x: "0", y: "0", width: "1", height: "1", "color-interpolation-filters": "sRGB" });
+      f.append(svgEl("feImage", { result: "map", preserveAspectRatio: "none" }));
+      ["r", "g", "b"].forEach((c, i) => {
+        f.append(svgEl("feDisplacementMap", { in: "SourceGraphic", in2: "map", xChannelSelector: "R", yChannelSelector: "G", result: "d" + c }));
+        const m = CH[i];
+        f.append(svgEl("feColorMatrix", { in: "d" + c, type: "matrix", result: c,
+          values: [m[0], 0, 0, 0, 0, 0, m[1], 0, 0, 0, 0, 0, m[2], 0, 0, 0, 0, 0, 1, 0].join(" ") }));
+      });
+      f.append(svgEl("feBlend", { in: "r", in2: "g", mode: "screen", result: "rg" }));
+      f.append(svgEl("feBlend", { in: "rg", in2: "b", mode: "screen" }));
+      defs.appendChild(f);
       el.style.setProperty("--lgf", "url(#" + id + ")");
+      el._lgBase = scale; el._lgBoost = 1;
+      // the refraction grows a little under the pointer (idea from the circular-button demo)
+      const tween = (to) => {
+        const from = el._lgBoost, t0 = performance.now();
+        const step = (t) => { const k = Math.min(1, (t - t0) / 160); el._lgBoost = from + (to - from) * k; setScale(el); if (k < 1) requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+      };
+      el.addEventListener("pointerenter", () => tween(1.4)); el.addEventListener("pointerleave", () => tween(1));
     } else f = defs.querySelector("#" + id);
-    const im = f.querySelector("feImage"), dm = f.querySelector("feDisplacementMap");
+    el._lgBase = scale; el._lgF = f;
+    const im = f.querySelector("feImage");
     im.setAttribute("x", "0"); im.setAttribute("y", "0"); im.setAttribute("width", w); im.setAttribute("height", h);
     im.setAttribute("href", lensMap(w, h, radius, bezel));
-    dm.setAttribute("scale", scale);
+    setScale(el);
     el.dataset.lgw = w + "x" + h;
+  }
+  function setScale(el) {
+    const f = el._lgF || defs.querySelector("#" + el.dataset.lgf); if (!f) return;
+    f.querySelectorAll("feDisplacementMap").forEach((dm, i) => dm.setAttribute("scale", (el._lgBase * el._lgBoost * SPLIT[i]).toFixed(2)));
   }
 
   const queued = new Set();
