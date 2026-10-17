@@ -1,0 +1,28 @@
+[project]
+name = "signalhunter"
+version = "0.1.0"
+description = "Datathon toolkit: one command from a raw table to a story brief"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "pandas>=2.2,<3",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "lightgbm>=4.5",
+    "catboost>=1.2.7",
+    "matplotlib>=3.9",
+    "pyarrow>=17",
+    "openpyxl>=3.1",
+    "ipykernel>=6.29",
+    "anthropic>=0.40",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.pytest_tmp -p no:cacheprovider"
+testpaths = ["tests"]
