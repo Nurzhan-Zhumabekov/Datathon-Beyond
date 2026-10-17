@@ -4,13 +4,20 @@ out/
 out_*/
 *.parquet
 examples/demo_*.csv
+*.mov
+*.mp4
+
+# Веса моделей (скачиваются scripts/download_models.sh)
+models/
 
 # Окружение и кэши
 .venv/
 __pycache__/
+*.pyc
 .pytest_cache/
 .pytest_tmp/
 catboost_info/
+.DS_Store
 
 # Ключи
 .env

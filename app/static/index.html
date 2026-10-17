@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BEYOND · Кассовый контроль</title>
+<style>
+  :root {
+    --bg: #f3f4f6; --panel: #ffffff; --side: #ffffff; --text: #14171b; --muted: #636c77; --line: #e3e6ea; --chip: #eff1f4;
+    --accent: #0b7a57; --accent-2: #e5f4ed; --accent-3: #16a374;
+    --bad: #c4372d; --bad-bg: #fdeceb; --good: #138050; --good-bg: #e5f5ec; --warn: #b36b00; --warn-bg: #fff3df;
+    --violet: #5b4fd6; --violet-bg: #eeecfd;
+    --seg-alone: #9fcbb9; --seg-service: #86ace0; --seg-absent: #d6dadf; --seg-crowd: #e7a95b;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1013; --panel: #151a1f; --side: #11151a; --text: #e8ebee; --muted: #959fab; --line: #252b32; --chip: #1f252c;
+      --accent: #40d39a; --accent-2: #132e25; --accent-3: #2fb883;
+      --bad: #ff7b70; --bad-bg: #36191a; --good: #5fd39e; --good-bg: #13291f; --warn: #ffb64a; --warn-bg: #30240f;
+      --violet: #a59cff; --violet-bg: #221f3d;
+      --seg-alone: #2c6a53; --seg-service: #2f5487; --seg-absent: #39404a; --seg-crowd: #8a5a1c;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 14.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 9px; padding: 8px 14px; background: var(--accent); color: #fff; }
+  button.ghost { background: var(--chip); color: var(--text); }
+  .muted { color: var(--muted); } .small { font-size: 12.5px; }
+  .hidden { display: none !important; }
+
+  /* layout */
+  .app { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+  @media (max-width: 900px) { .app { grid-template-columns: 1fr; } .side { position: static !important; height: auto !important; } }
+  .side { position: sticky; top: 0; height: 100vh; background: var(--side); border-right: 1px solid var(--line); padding: 20px 16px; display: flex; flex-direction: column; gap: 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent-3), var(--violet)); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 17px; }
+  .brand b { font-size: 18px; letter-spacing: 2.5px; display: block; line-height: 1.1; }
+  .brand span { font-size: 11.5px; color: var(--muted); }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav a { text-decoration: none; color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: 14px; }
+  .nav a:hover { background: var(--chip); }
+  .nav a.on { background: var(--accent-2); color: var(--accent); font-weight: 600; }
+  .side h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+  .model { display: flex; gap: 9px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+  .model:first-of-type { border-top: 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--muted); display: inline-block; }
+  .chip .dot { margin-top: 0; }
+  .dot.ok { background: var(--accent-3); box-shadow: 0 0 0 3px var(--accent-2); }
+  .dot.off { background: var(--warn); }
+  .model b { display: block; font-size: 13px; } .model span { font-size: 12px; color: var(--muted); }
+  .side .spacer { flex: 1; }
+  .local { font-size: 12px; background: var(--accent-2); color: var(--accent); border-radius: 10px; padding: 9px 11px; }
+
+  .main { padding: 22px 26px 60px; max-width: 1280px; width: 100%; }
+  @media (max-width: 600px) { .main { padding: 16px; } }
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .topbar h1 { margin: 0; font-size: 21px; letter-spacing: -.2px; word-break: break-word; }
+  .topbar .crumb { font-size: 12.5px; color: var(--muted); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .chip { font-size: 12.5px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; display: inline-flex; align-items: center; gap: 6px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); }
+  .panel h3 { margin: 0 0 12px; font-size: 15px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 1050px) { .grid2 { grid-template-columns: 1fr !important; } }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+  @media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .kpi .k { font-size: 12px; color: var(--muted); }
+  .kpi .v { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .kpi .s { font-size: 12px; color: var(--muted); }
+
+  /* upload */
+  #drop { border: 2px dashed var(--line); border-radius: 14px; min-height: 250px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; cursor: pointer; padding: 24px; transition: .15s; }
+  #drop:hover, #drop.over { border-color: var(--accent-3); background: var(--accent-2); }
+  #drop .ic { width: 52px; height: 52px; border-radius: 14px; background: var(--accent-2); color: var(--accent); display: grid; place-items: center; font-size: 26px; margin-bottom: 12px; }
+  #drop .big { font-size: 17px; font-weight: 650; }
+  #drop .or { margin: 10px 0 0; }
+
+  /* pipeline (escalation) */
+  .pipe { list-style: none; margin: 0; padding: 0; position: relative; }
+  .pipe li { position: relative; padding: 0 0 14px 40px; }
+  .pipe li:last-child { padding-bottom: 0; }
+  .pipe li::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--line); }
+  .pipe li:last-child::before { display: none; }
+  .pipe .n { position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; background: var(--chip); color: var(--muted); }
+  .pipe .t { font-weight: 600; font-size: 14px; }
+  .pipe .d { font-size: 12.5px; color: var(--muted); }
+  .pipe .tag { font-size: 11px; border-radius: 6px; padding: 1px 7px; margin-left: 6px; font-weight: 600; }
+  .tag.fast { background: var(--accent-2); color: var(--accent); }
+  .tag.strong { background: var(--violet-bg); color: var(--violet); }
+  .pipe li.esc .n { background: var(--violet-bg); color: var(--violet); }
+  .pipe li.done .n { background: var(--accent-2); color: var(--accent); }
+  .pipe li.on .n { background: var(--accent); color: #fff; box-shadow: 0 0 0 4px var(--accent-2); }
+  .pipe li.on.esc .n { background: var(--violet); box-shadow: 0 0 0 4px var(--violet-bg); }
+  .pipe .live { font-size: 12.5px; color: var(--accent); margin-top: 2px; font-weight: 600; }
+  .pipe li.esc .live { color: var(--violet); }
+
+  .bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-3), var(--violet)); transition: width .5s; }
+
+  table.list { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.list td, table.list th { padding: 8px 6px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+  table.list th { font-size: 11.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; border-top: 0; }
+  table.list tr.click { cursor: pointer; } table.list tr.click:hover td { background: var(--chip); }
+  .pill { font-size: 12px; border-radius: 999px; padding: 2px 9px; font-weight: 600; white-space: nowrap; display: inline-block; }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); } .pill.good { background: var(--good-bg); color: var(--good); }
+  .pill.esc { background: var(--violet-bg); color: var(--violet); } .pill.fast { background: var(--accent-2); color: var(--accent); }
+
+  /* result */
+  .verdict { border-radius: 14px; padding: 16px 18px; }
+  .verdict.bad { background: var(--bad-bg); color: var(--bad); } .verdict.good { background: var(--good-bg); color: var(--good); }
+  .verdict .v1 { font-size: 18px; font-weight: 700; } .verdict .v2 { font-size: 13px; opacity: .9; margin-top: 2px; }
+  .res { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 960px) { .res { grid-template-columns: 1fr; } }
+  .player { position: relative; background: #000; border-radius: 12px; overflow: hidden; }
+  .player video, .player img { display: block; width: 100%; max-height: 640px; object-fit: contain; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  .box { position: absolute; border: 3px solid #ff3b30; border-radius: 4px; box-shadow: 0 0 0 2px rgba(0,0,0,.35); animation: pulse 1.2s ease-in-out infinite; }
+  .box span { position: absolute; left: -3px; top: -24px; background: #ff3b30; color: #fff; font-size: 12px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(255,59,48,.35); } }
+  .now { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 20px; }
+  .viol { border: 1px solid var(--line); border-left: 4px solid var(--bad); border-radius: 12px; padding: 14px; margin-bottom: 12px; cursor: pointer; transition: .15s; }
+  .viol:hover, .viol.active { box-shadow: 0 0 0 2px var(--bad-bg); border-color: var(--bad); }
+  .viol .hd { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .viol h4 { margin: 0; font-size: 15.5px; }
+  .viol .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .tc { background: var(--chip); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; font-weight: 600; }
+  .plaus { margin: 10px 0 2px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .plaus .pb { flex: 1; height: 7px; background: var(--chip); border-radius: 4px; overflow: hidden; min-width: 60px; }
+  .plaus .pb div { height: 100%; border-radius: 4px; }
+  .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-top: 10px; font-weight: 600; }
+  .frames { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; }
+  .frames figure { margin: 0; flex: none; }
+  .frames img { height: 140px; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; display: block; }
+  .frames figcaption { font-size: 11.5px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+  .rule { font-size: 13px; background: var(--chip); border-radius: 8px; padding: 9px 11px; margin-top: 10px; }
+  .empty { padding: 30px 10px; text-align: center; color: var(--muted); }
+
+  .timeline { position: relative; height: 36px; border-radius: 8px; overflow: hidden; background: var(--chip); cursor: pointer; }
+  .seg { position: absolute; top: 0; bottom: 0; }
+  .seg.alone { background: var(--seg-alone); } .seg.service { background: var(--seg-service); }
+  .seg.absent { background: var(--seg-absent); } .seg.crowd { background: var(--seg-crowd); }
+  .mark { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--bad); }
+  .mark::after { content: "!"; position: absolute; top: 8px; left: -8px; width: 20px; height: 20px; border-radius: 50%; background: var(--bad); color: #fff; font-size: 12px; font-weight: 800; text-align: center; line-height: 20px; }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .75; pointer-events: none; left: 0; z-index: 2; }
+  .ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+  #chron tr.bad td { color: var(--bad); font-weight: 600; }
+  #chron td.t { width: 130px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+
+  #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.86); display: none; align-items: center; justify-content: center; z-index: 20; cursor: zoom-out; }
+  #zoom img { max-width: 95vw; max-height: 95vh; border-radius: 8px; }
+  .foot { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== Sidebar ===== -->
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div><b>BEYOND</b><span>Datathon 26 · ForteBank</span></div>
+    </div>
+    <nav class="nav">
+      <a href="#" id="navNew" class="on">Новый анализ</a>
+      <a href="#recent" id="navRecent">Последние проверки</a>
+      <a href="#how" id="navHow">Как это работает</a>
+    </nav>
+    <div>
+      <h4>Модели · эскалация</h4>
+      <div class="model"><i class="dot" id="dotScan"></i><div><b>Сканер · Qwen3‑VL‑4B</b><span>каждый кадр, быстро</span></div></div>
+      <div class="model"><i class="dot" id="dotJudge"></i><div><b>Эксперт · Qwen3‑VL‑8B</b><span>перепроверка подозрений</span></div></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="local">🔒 Все модели работают локально. Облачных AI‑вызовов: <b>0</b></div>
+  </aside>
+
+  <!-- ===== Main ===== -->
+  <main class="main">
+    <div class="topbar">
+      <div><div class="crumb" id="crumb">BEYOND / Анализ видео</div><h1 id="title">Контроль кассовой дисциплины</h1></div>
+      <div class="chips">
+        <span class="chip"><i class="dot" id="dotApi"></i><span id="apiText">Сервис…</span></span>
+        <span class="chip">Очередь: <b id="queueText">—</b></span>
+        <button class="ghost hidden" id="newBtn">+ Новый анализ</button>
+      </div>
+    </div>
+
+    <!-- Upload -->
+    <section id="uploadView">
+      <div class="grid2">
+        <div class="panel">
+          <div id="drop">
+            <div class="ic">⬆</div>
+            <div class="big">Перетащите видео сюда</div>
+            <div class="muted">или нажмите, чтобы выбрать файл · можно вставить ⌘V</div>
+            <div class="muted small or">.mov / .mp4 · камера над кассой · до ~150 секунд</div>
+            <input id="file" type="file" accept="video/*,.mov" hidden>
+          </div>
+        </div>
+        <div class="panel" id="how">
+          <h3>Конвейер с эскалацией на 2 модели</h3>
+          <ol class="pipe" id="pipeInfo"></ol>
+        </div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">Типов нарушений</div><div class="v">9</div><div class="s">по нормам НБРК</div></div>
+        <div class="kpi"><div class="k">Нормативных актов</div><div class="v">3</div><div class="s">Правила № 231, № 14, ИБ</div></div>
+        <div class="kpi"><div class="k">Лимит на видео</div><div class="v">&lt; 5 мин</div><div class="s">с учётом очереди</div></div>
+        <div class="kpi"><div class="k">Облачных вызовов</div><div class="v">0</div><div class="s">работает без интернета</div></div>
+      </div>
+      <div class="panel" id="recent">
+        <h3>Последние проверки <span class="muted small">(в этом браузере)</span></h3>
+        <table class="list" id="recentTable"></table>
+      </div>
+    </section>
+
+    <!-- Progress -->
+    <section id="progressView" class="hidden">
+      <div class="grid2">
+        <div class="panel">
+          <h3 id="progName">Видео</h3>
+          <div class="player" style="max-width:300px"><video id="previewVid" muted playsinline></video></div>
+          <div style="margin-top:14px" class="bar"><div id="barFill"></div></div>
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px" class="small muted">
+            <span id="stageText">Загрузка…</span><span id="elapsed">0 с</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Ход анализа</h3>
+          <ol class="pipe" id="pipeLive"></ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Result -->
+    <section id="resultView" class="hidden">
+      <div class="grid2" style="grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)">
+        <div id="verdict" class="verdict"><div class="v1"></div><div class="v2"></div></div>
+        <div class="panel" style="padding:12px 16px">
+          <div class="small muted">Цепочка анализа</div>
+          <div id="chainText" style="font-size:13.5px;margin-top:2px"></div>
+        </div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">Нарушений</div><div class="v" id="tCount">0</div><div class="s" id="tCountS"></div></div>
+        <div class="kpi"><div class="k">Макс. вероятность</div><div class="v" id="tMax">—</div><div class="s" id="tMaxS"></div></div>
+        <div class="kpi"><div class="k">Эскалаций в 8B</div><div class="v" id="tEsc">—</div><div class="s" id="tEscS"></div></div>
+        <div class="kpi"><div class="k">Видео / анализ</div><div class="v" id="tDur">—</div><div class="s" id="tDurS"></div></div>
+      </div>
+      <div class="res">
+        <div class="panel">
+          <div class="player" id="playerBox"><video id="player" controls playsinline muted></video><div id="overlay"></div></div>
+          <div class="now" id="nowText"></div>
+        </div>
+        <div class="panel"><h3>Найденные нарушения</h3><div id="violations"></div></div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <h3 style="margin:0">Хронология видео</h3><span class="muted small">нажмите на участок или метку, чтобы перейти к моменту</span>
+        </div>
+        <div class="timeline" id="timeline"><div class="playhead" id="playhead"></div></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="legend">
+          <span><i style="background:var(--seg-alone)"></i>Кассир на месте</span>
+          <span><i style="background:var(--seg-service)"></i>Кассир и посетитель</span>
+          <span><i style="background:var(--seg-crowd)"></i>3+ человека</span>
+          <span><i style="background:var(--seg-absent)"></i>Кассира нет</span>
+          <span><i style="background:var(--bad)"></i>Нарушение</span>
+        </div>
+        <table class="list" id="chron" style="margin-top:10px"></table>
+      </div>
+      <div class="foot">Результат — подсказка для проверяющего, а не окончательное заключение. Сервис не делает выводов о том,
+        чего не видно на видео (проводки, сверка, подлинность купюр, намерения людей). <span id="summary"></span></div>
+    </section>
+  </main>
+</div>
+<div id="zoom"><img alt=""></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (t) => { t = Math.max(0, +t || 0); const m = Math.floor(t / 60), s = (t - 60 * m).toFixed(1).padStart(4, "0"); return `${m}:${s}`; };
+const pct = (x) => `${Math.round(100 * (x || 0))}%`;
+const level = (x) => x >= 0.75 ? ["высокая", "var(--bad)"] : x >= 0.5 ? ["средняя", "var(--warn)"] : ["низкая", "var(--muted)"];
+let DATA = null, duration = 0, startedAt = 0, timer = null, currentJob = null;
+
+// ---------- pipeline description (shared by the "how" card and the live view) ----------
+const PIPE = [
+  { k: "upload", t: "Загрузка и декодирование", d: "кадры с точными временными метками" },
+  { k: "scan", t: "Сканер", tag: ["fast", "Qwen3‑VL‑4B"], d: "читает кадр каждые ~1,5 с: кто в помещении, что на столе и в руках" },
+  { k: "rules", t: "Правила кассовой дисциплины", d: "уход с рабочего места, ценности на столе, телефон, посторонние, инкассация" },
+  { k: "judge", t: "Эскалация", tag: ["strong", "Qwen3‑VL‑8B"], d: "только подозрительные моменты: подтверждает, оценивает вероятность, отмечает объект рамкой", esc: true },
+  { k: "report", t: "Отчёт", d: "тип, таймкод, кадр‑доказательство, описание и норма НБРК" },
+];
+function drawPipe(el, activeKey, live) {
+  const ai = PIPE.findIndex((p) => p.k === activeKey);
+  el.innerHTML = PIPE.map((p, i) => {
+    const cls = [ai > i ? "done" : "", ai === i ? "on" : "", p.esc ? "esc" : ""].join(" ").trim();
+    const tag = p.tag ? `<span class="tag ${p.tag[0]}">${p.tag[1]}</span>` : "";
+    const live_ = ai === i && live ? `<div class="live">${esc(live)}</div>` : "";
+    return `<li class="${cls}"><span class="n">${ai > i ? "✓" : i + 1}</span><div class="t">${p.t}${tag}</div><div class="d">${p.d}</div>${live_}</li>`;
+  }).join("");
+}
+drawPipe($("pipeInfo"), null);
+
+// ---------- service status ----------
+async function refreshStatus() {
+  try {
+    const r = await fetch("/ui/status");
+    if (r.ok) {
+      const s = await r.json();
+      $("dotApi").className = "dot ok"; $("apiText").textContent = "Сервис онлайн";
+      $("queueText").textContent = s.queue ?? 0;
+      $("dotScan").className = "dot " + (s.scan_model ? "ok" : "off");
+      $("dotJudge").className = "dot " + (s.judge_model ? "ok" : "off");
+      return;
+    }
+    const h = await fetch("/health");
+    if (!h.ok) throw new Error("down");
+    $("dotApi").className = "dot ok"; $("apiText").textContent = "Сервис онлайн";
+    $("dotScan").className = $("dotJudge").className = "dot ok";
+  } catch (e) {
+    $("dotApi").className = "dot off"; $("apiText").textContent = "Сервис недоступен";
+  }
+}
+refreshStatus(); setInterval(refreshStatus, 10000);
+
+// ---------- recent checks (this browser only) ----------
+function recentLoad() { try { return JSON.parse(localStorage.getItem("beyond_recent") || "[]"); } catch (e) { return []; } }
+function recentSave(item) {
+  try { const r = recentLoad().filter((x) => x.id !== item.id); r.unshift(item); localStorage.setItem("beyond_recent", JSON.stringify(r.slice(0, 12))); } catch (e) {}
+}
+function drawRecent() {
+  const r = recentLoad(), t = $("recentTable");
+  if (!r.length) { t.innerHTML = '<tr><td class="muted">Пока нет проверок. Загрузите видео — результат появится здесь.</td></tr>'; return; }
+  t.innerHTML = "<tr><th>Файл</th><th>Результат</th><th>Нарушений</th><th>Когда</th></tr>" + r.map((x) =>
+    `<tr class="click" data-id="${esc(x.id)}"><td>${esc(x.name)}</td><td><span class="pill ${x.bad ? "bad" : "good"}">${x.bad ? "нарушение" : "нет нарушений"}</span></td><td>${x.n}</td><td class="muted">${new Date(x.at).toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</td></tr>`).join("");
+  t.querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => openJob(tr.dataset.id)));
+}
+drawRecent();
+
+// ---------- navigation ----------
+function show(view) {
+  ["uploadView", "progressView", "resultView"].forEach((v) => $(v).classList.toggle("hidden", v !== view));
+  $("newBtn").classList.toggle("hidden", view === "uploadView");
+  $("crumb").textContent = view === "resultView" ? "BEYOND / Анализ видео / Результат" : view === "progressView" ? "BEYOND / Анализ видео / Обработка" : "BEYOND / Анализ видео";
+}
+const goHome = (e) => { if (e) e.preventDefault(); location.href = location.pathname; };
+$("newBtn").onclick = goHome; $("navNew").onclick = goHome;
+const goTo = (id) => (e) => {
+  e.preventDefault();
+  if (!$("uploadView").classList.contains("hidden")) $(id).scrollIntoView({ behavior: "smooth" });
+  else location.href = location.pathname + "#" + id;
+};
+$("navRecent").onclick = goTo("recent"); $("navHow").onclick = goTo("how");
+$("zoom").onclick = () => ($("zoom").style.display = "none");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("zoom").style.display = "none"; });
+
+// ---------- upload: drop, click, paste ----------
+const drop = $("drop"), input = $("file");
+drop.onclick = () => input.click();
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) start(f); };
+input.onchange = () => { if (input.files[0]) start(input.files[0]); };
+document.addEventListener("paste", (e) => {
+  if ($("uploadView").classList.contains("hidden")) return;
+  const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("video/") || /\.(mov|mp4|m4v)$/i.test(x.name));
+  if (f) start(f);
+});
+
+function startTimer() {
+  startedAt = Date.now(); clearInterval(timer);
+  timer = setInterval(() => ($("elapsed").textContent = Math.round((Date.now() - startedAt) / 1000) + " с"), 500);
+}
+function setProgress(key, frac, text) {
+  $("barFill").style.width = Math.round(100 * Math.min(1, Math.max(0, frac))) + "%";
+  $("stageText").textContent = text || "";
+  drawPipe($("pipeLive"), key, text);
+}
+
+function start(file) {
+  if (!/^video\//.test(file.type) && !/\.(mov|mp4|m4v|avi|mkv)$/i.test(file.name)) { alert("Нужен видеофайл (.mov или .mp4)"); return; }
+  show("progressView"); startTimer();
+  currentJob = { name: file.name };
+  $("progName").textContent = file.name; $("title").textContent = file.name;
+  const url = URL.createObjectURL(file);
+  $("previewVid").src = url; $("player").src = url;
+  setProgress("upload", 0, "Загрузка видео…");
+  const fd = new FormData(); fd.append("file", file);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/ui/analyze");
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) setProgress("upload", 0.08 * e.loaded / e.total, `Загрузка ${Math.round(100 * e.loaded / e.total)}%`); };
+  xhr.onload = () => {
+    if (xhr.status !== 200) { clearInterval(timer); return setProgress("upload", 0, "Ошибка загрузки: " + xhr.responseText); }
+    const id = JSON.parse(xhr.responseText).job_id; currentJob.id = id;
+    history.replaceState(null, "", `?job=${id}`); poll(id);
+  };
+  xhr.onerror = () => { clearInterval(timer); setProgress("upload", 0, "Ошибка сети при загрузке"); };
+  xhr.send(fd);
+}
+
+function openJob(id) {
+  show("progressView"); startTimer();
+  $("progName").textContent = "Проверка " + id; history.replaceState(null, "", `?job=${id}`);
+  setProgress("upload", 0, "Загрузка результата…"); poll(id);
+}
+
+async function poll(id) {
+  let j;
+  try {
+    const r = await fetch(`/ui/jobs/${id}`);
+    if (r.status === 404) { clearInterval(timer); return setProgress("upload", 0, "Проверка не найдена (сервер мог быть перезапущен)."); }
+    j = await r.json();
+  } catch (e) { return setTimeout(() => poll(id), 2500); }
+  if (j.status === "processing") {
+    const st = j.stage || "";
+    const key = /8B|подозр|эскал/i.test(st) ? "judge" : /рабочего места|правил/i.test(st) ? "rules" : /отч/i.test(st) ? "report" : /очеред/i.test(st) ? "upload" : "scan";
+    const q = j.queue_position > 0 ? ` · перед вами в очереди: ${j.queue_position}` : "";
+    setProgress(key, 0.08 + 0.92 * (j.progress || 0), (st || "Анализ") + q);
+    return setTimeout(() => poll(id), 1200);
+  }
+  clearInterval(timer);
+  if (j.status === "failed") return setProgress("report", 0, "Не удалось обработать видео: " + (j.error || ""));
+  if (!$("player").getAttribute("src") && j.video_available) $("player").src = `/ui/video/${id}`;
+  recentSave({ id, name: currentJob?.name || j.filename || id, bad: j.verdict === "violation", n: (j.violations || []).length, at: Date.now() });
+  try { render(j); } catch (e) { console.error(e); setProgress("report", 1, "Ошибка отображения результата: " + e.message); }
+}
+
+// ---------- result dashboard ----------
+function render(j) {
+  DATA = j; duration = j.duration || $("player").duration || 1;
+  show("resultView");
+  $("title").textContent = j.filename || currentJob?.name || "Результат анализа";
+  const vs = j.violations || [], bad = j.verdict === "violation", pl = j.pipeline || {};
+  const v = $("verdict"); v.className = "verdict " + (bad ? "bad" : "good");
+  v.querySelector(".v1").textContent = bad ? "Обнаружены признаки возможных нарушений" : "Нарушение не обнаружено";
+  v.querySelector(".v2").textContent = bad ? vs.map((x) => `${fmt(x.timecode_sec)} — ${x.type}`).join(" · ") : "Визуальных признаков нарушений не найдено";
+  $("tCount").textContent = vs.length; $("tCountS").textContent = bad ? "требуют проверки человеком" : "видео без нарушений";
+  const mx = vs.length ? Math.max(...vs.map((x) => x.confidence ?? 0)) : null;
+  $("tMax").textContent = mx == null ? "—" : pct(mx); $("tMaxS").textContent = mx == null ? "" : level(mx)[0];
+  $("tEsc").textContent = pl.escalations ?? "—";
+  $("tEscS").textContent = pl.escalations != null ? `подтверждено ${pl.confirmed ?? 0} · отклонено ${pl.rejected ?? 0}` : "";
+  $("tDur").textContent = `${Math.round(duration)} с`; $("tDurS").textContent = j.elapsed_sec ? `анализ ${Math.round(j.elapsed_sec)} с` : "";
+  $("chainText").innerHTML = pl.frames_scanned != null
+    ? `Сканер 4B: <b>${pl.frames_scanned}</b> кадров → правила: <b>${pl.candidates}</b> подозрений → эксперт 8B: <b>${pl.escalations}</b> проверено, <b>${pl.rejected}</b> отклонено → <b>${vs.length}</b> в отчёте`
+    : esc(j.summary || "—");
+  $("summary").textContent = j.summary || "";
+
+  // violation cards
+  const list = $("violations"); list.innerHTML = "";
+  if (!vs.length) list.innerHTML = '<div class="empty">Нарушений не найдено.<br>Хронология ниже показывает, что происходило на видео.</div>';
+  vs.forEach((x, k) => {
+    const [lv, col] = level(x.confidence ?? 0);
+    const frames = (x.evidence_frames || []).map((f) => `<figure><img src="data:image/jpeg;base64,${f.image_base64}" data-t="${f.timestamp_sec}" alt="кадр ${fmt(f.timestamp_sec)}"><figcaption>${fmt(f.timestamp_sec)}</figcaption></figure>`).join("");
+    const reg = x.regulation ? `<div class="rule"><b>Основание:</b> ${esc(x.regulation.document)}, ${esc(x.regulation.clause)}${x.regulation.url ? ` — <a href="${esc(x.regulation.url)}" target="_blank" rel="noopener">текст на adilet.zan.kz</a>` : ""}</div>` : "";
+    const src = x.escalated ? `<span class="pill esc">${x.judge_confirmed ? "Подтверждено экспертом 8B" : "Проверено экспертом 8B"}</span>` : `<span class="pill fast">Сканер 4B</span>`;
+    const el = document.createElement("div"); el.className = "viol"; el.dataset.k = k;
+    el.innerHTML = `
+      <div class="hd"><h4>${esc(x.type)}</h4><span class="tc">⏱ ${fmt(x.timecode_sec)}</span></div>
+      <div class="tags">${src}</div>
+      <div class="plaus">Вероятность <b style="color:${col}">${pct(x.confidence)} · ${lv}</b><div class="pb"><div style="width:${pct(x.confidence)};background:${col}"></div></div></div>
+      <div class="lbl">Что видно на видео</div><div>${esc(x.seen || x.description)}</div>
+      ${x.why ? `<div class="lbl">Почему это может быть нарушением</div><div>${esc(x.why)}</div>` : ""}
+      <div class="lbl">Кадры‑доказательства</div><div class="frames">${frames}</div>${reg}`;
+    el.onclick = (e) => {
+      if (e.target.tagName === "A") return;
+      if (e.target.tagName === "IMG") { $("zoom").querySelector("img").src = e.target.src; $("zoom").style.display = "flex"; seek(+e.target.dataset.t); return; }
+      seek(x.timecode_sec);
+    };
+    list.appendChild(el);
+  });
+
+  // timeline
+  const tl = $("timeline"); tl.querySelectorAll(".seg,.mark").forEach((n) => n.remove());
+  (j.segments || []).forEach((s) => {
+    const d = document.createElement("div"); d.className = "seg " + s.kind;
+    d.style.left = (100 * s.start / duration) + "%"; d.style.width = (100 * Math.max(0.2, s.end - s.start) / duration) + "%";
+    d.title = `${fmt(s.start)}–${fmt(s.end)}: ${s.label}`; tl.appendChild(d);
+  });
+  vs.forEach((x) => { const m = document.createElement("div"); m.className = "mark"; m.style.left = (100 * x.timecode_sec / duration) + "%"; m.title = `${fmt(x.timecode_sec)} ${x.type}`; tl.appendChild(m); });
+  tl.onclick = (e) => { const r = tl.getBoundingClientRect(); seek(duration * (e.clientX - r.left) / r.width); };
+  $("ticks").innerHTML = [0, .25, .5, .75, 1].map((p) => `<span>${fmt(p * duration)}</span>`).join("");
+
+  const rows = (j.segments || []).map((s) => ({ t: s.start, cls: "", html: `<td class="t">${fmt(s.start)}–${fmt(s.end)}</td><td>${esc(s.label)}</td>` }))
+    .concat(vs.map((x) => ({ t: x.timecode_sec, cls: "bad", html: `<td class="t">⚠ ${fmt(x.timecode_sec)}</td><td>${esc(x.type)} · ${pct(x.confidence)}</td>` })))
+    .sort((a, b) => a.t - b.t);
+  $("chron").innerHTML = rows.length ? rows.map((r) => `<tr class="click ${r.cls}" data-t="${r.t}">${r.html}</tr>`).join("") : '<tr><td class="muted">Нет данных хронологии.</td></tr>';
+  $("chron").querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => seek(+tr.dataset.t)));
+
+  // player: real video when available, otherwise the first evidence frame
+  const p = $("player");
+  if (!p.getAttribute("src")) {
+    const f = vs[0]?.evidence_frames?.[0];
+    $("playerBox").innerHTML = f ? `<img src="data:image/jpeg;base64,${f.image_base64}" alt="кадр‑доказательство">` : '<div class="empty" style="color:#bbb">Видео не сохраняется после анализа</div>';
+    $("nowText").textContent = "Видео удалено после анализа (политика хранения); показан кадр‑доказательство.";
+    return;
+  }
+  p.ontimeupdate = p.onseeked = drawOverlay;
+  p.addEventListener("loadedmetadata", () => { if (!j.duration && p.duration) duration = p.duration; drawOverlay(); });
+  window.onresize = drawOverlay;
+  if (vs.length) seek(vs[0].timecode_sec); else drawOverlay();
+}
+
+function seek(t) {
+  const p = $("player"); if (!p || !p.getAttribute("src")) return;
+  p.pause();
+  const go = () => { p.currentTime = Math.max(0, Math.min(t, (p.duration || t + 1) - 0.05)); drawOverlay(); };
+  if (p.readyState >= 1) go(); else p.addEventListener("loadedmetadata", go, { once: true });
+}
+
+// Red box over the video around the violation moment.
+function drawOverlay() {
+  const p = $("player"), ov = $("overlay"); if (!DATA || !p || !ov) return;
+  const t = p.currentTime || 0;
+  $("playhead").style.left = (100 * Math.min(1, t / duration)) + "%";
+  ov.innerHTML = "";
+  const vw = p.videoWidth, vh = p.videoHeight, active = [];
+  (DATA.violations || []).forEach((x, k) => {
+    const near = Math.abs(t - x.timecode_sec) <= 1.5;
+    document.querySelectorAll(`.viol[data-k="${k}"]`).forEach((el) => el.classList.toggle("active", near));
+    if (!near) return;
+    active.push(x);
+    if (!vw) return;
+    const W = p.clientWidth, H = p.clientHeight, sc = Math.min(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
+    (x.boxes || []).forEach((b) => {
+      if (!b.bbox) return;
+      const [x1, y1, x2, y2] = b.bbox;
+      const d = document.createElement("div"); d.className = "box";
+      d.style.left = ox + x1 * dw + "px"; d.style.top = oy + y1 * dh + "px";
+      d.style.width = Math.max(8, (x2 - x1) * dw) + "px"; d.style.height = Math.max(8, (y2 - y1) * dh) + "px";
+      d.innerHTML = `<span>${esc(b.label || x.type)}</span>`; ov.appendChild(d);
+    });
+  });
+  $("nowText").textContent = active.length ? `⚠ ${fmt(t)} — ${active.map((x) => x.type).join("; ")}` : `▶ ${fmt(t)}`;
+}
+
+// Open an existing result directly: /?job=<id>
+const jobParam = new URLSearchParams(location.search).get("job");
+if (jobParam) openJob(jobParam);
+if (location.hash === "#recent") setTimeout(() => $("recent").scrollIntoView(), 50);
+if (location.hash === "#how") setTimeout(() => $("how").scrollIntoView(), 50);
+</script>
+</body>
+</html>
