@@ -249,7 +249,7 @@
       </div>
       <div class="kpis">
         <div class="kpi"><div class="k">Нарушений</div><div class="v" id="tCount">0</div><div class="s" id="tCountS"></div></div>
-        <div class="kpi"><div class="k">Макс. вероятность</div><div class="v" id="tMax">—</div><div class="s" id="tMaxS"></div></div>
+        <div class="kpi"><div class="k">Макс. уверенность модели</div><div class="v" id="tMax">—</div><div class="s" id="tMaxS"></div></div>
         <div class="kpi"><div class="k">Эскалаций в 8B</div><div class="v" id="tEsc">—</div><div class="s" id="tEscS"></div></div>
         <div class="kpi"><div class="k">Видео / анализ</div><div class="v" id="tDur">—</div><div class="s" id="tDurS"></div></div>
       </div>
@@ -295,7 +295,7 @@ const PIPE = [
   { k: "upload", t: "Загрузка и декодирование", d: "кадры с точными временными метками" },
   { k: "scan", t: "Сканер", tag: ["fast", "Qwen3‑VL‑4B"], d: "читает кадр каждые ~1,5 с: кто в помещении, что на столе и в руках" },
   { k: "rules", t: "Правила кассовой дисциплины", d: "уход с рабочего места, ценности на столе, телефон, посторонние, инкассация" },
-  { k: "judge", t: "Эскалация", tag: ["strong", "Qwen3‑VL‑8B"], d: "только подозрительные моменты: подтверждает, оценивает вероятность, отмечает объект рамкой", esc: true },
+  { k: "judge", t: "Эскалация", tag: ["strong", "Qwen3‑VL‑8B"], d: "только подозрительные моменты: подтверждает или отклоняет, оценивает уверенность, отмечает объект рамкой", esc: true },
   { k: "report", t: "Отчёт", d: "тип, таймкод, кадр‑доказательство, описание и норма НБРК" },
 ];
 function drawPipe(el, activeKey, live) {
@@ -465,7 +465,7 @@ function render(j) {
     el.innerHTML = `
       <div class="hd"><h4>${esc(x.type)}</h4><span class="tc">⏱ ${fmt(x.timecode_sec)}</span></div>
       <div class="tags">${src}</div>
-      <div class="plaus">Вероятность <b style="color:${col}">${pct(x.confidence)} · ${lv}</b><div class="pb"><div style="width:${pct(x.confidence)};background:${col}"></div></div></div>
+      <div class="plaus" title="Уверенность модели — не откалиброванная вероятность">Уверенность модели <b style="color:${col}">${pct(x.confidence)} · ${lv}</b><div class="pb"><div style="width:${pct(x.confidence)};background:${col}"></div></div></div>
       <div class="lbl">Что видно на видео</div><div>${esc(x.seen || x.description)}</div>
       ${x.why ? `<div class="lbl">Почему это может быть нарушением</div><div>${esc(x.why)}</div>` : ""}
       <div class="lbl">Кадры‑доказательства</div><div class="frames">${frames}</div>${reg}`;

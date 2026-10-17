@@ -40,7 +40,8 @@ STANDARD_EQUIPMENT = ("counting machine", "counter", "desk phone", "telephone", 
                       "keyboard", "mouse", "printer", "scanner", "cable", "wire", "lamp", "machine",
                       "card reader", "terminal", "phone base", "speaker", "router", "charger", "nothing", "none", "safe", "cabinet", "drawer", "chair",
                       "outlet", "socket", "power", "adapter", "cord", "plug", "headset", "mouse pad", "stand", "screen",
-                      "display", "sticker", "label", "logo", "desk surface")
+                      "display", "sticker", "label", "logo", "desk surface",
+                      "register", "device", "receipt")
 
 
 def _as_bool(v) -> bool:
@@ -72,7 +73,7 @@ def read_state(frame: Frame) -> dict:
 
 
 LOCATE_DESK = 'Locate the desk (table top) on which the laptop stands. Output only JSON: {"bbox_2d": [x1, y1, x2, y2]}'
-DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List every object lying on the desk surface, including small ones (banknotes, money bundles, envelopes, bags, cups, phones, tablets, documents, keys).
+DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List only the objects you can clearly see lying on the desk surface. Do not guess; if the desk is empty apart from the equipment, say so.
 Answer ONLY with JSON: {"objects_on_desk": ["..."]}"""
 
 
@@ -118,6 +119,9 @@ def check_left_behind(frame: Frame, extra: Frame | None = None) -> dict:
     for o in objs:
         s = re.sub(r"\(.*?\)", "", str(o).lower()).strip()
         if s in ("phone", "telephone", "phones"):
+            continue
+        # Ordinary stationery is normal on a desk and is often hallucinated on an empty desk: ignore it.
+        if re.search(r"\b(documents?|papers?|keys?|pens?|pencils?|scissors|stapler|notebooks?|folders?|sticky notes?)\b", s):
             continue
         ru = to_russian(s)
         if s and not any(w in s for w in STANDARD_EQUIPMENT) and ru not in suspicious:
@@ -241,13 +245,17 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             break
         if cnt[i - 2] == cnt[i - 1] == 1 and cnt[i] >= 2 and cnt[i + 1] >= 2 and states[i - 1]["cashier_present"]:
             checks += 1
-            f_entry = min(frames, key=lambda f: abs(f.t - ts[i]))
-            js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80)) or {}
-            found = js.get("objects_on_desk")
-            objs = [str(o).lower() for o in found] if isinstance(found, list) else []
-            money = [to_russian(o) for o in objs if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
-                     and not any(w in o for w in ("machine", "counter", "bag", "sack"))]
-            log.info("entry at %.1fs: %s", ts[i], objs)
+            reads = []
+            for dt in (0.0, 1.5):  # persistence: banknotes must be seen on both reads
+                f_entry = min(frames, key=lambda f: abs(f.t - (ts[i] + dt)))
+                js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80))
+                found = js.get("objects_on_desk") if isinstance(js, dict) else None
+                objs = [str(o).lower() for o in found] if isinstance(found, list) else []
+                reads.append([to_russian(o) for o in objs
+                              if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
+                              and not any(w in o for w in ("machine", "counter", "bag", "sack", "register", "drawer"))])
+            money = reads[0] if all(reads) else []
+            log.info("entry at %.1fs: %s", ts[i], reads)
             if money:
                 events.append({"id": "cash_exposed", "t": ts[i], "conf": 0.5,
                                "detail": "в помещение входит посетитель, при этом на столе открыто лежат: " + ", ".join(money[:3]),
@@ -280,6 +288,7 @@ HYPOTHESIS = {
     "collection_bag": "A person brings a bag of valuables and leaves within seconds, before the cashier checks the bag and its seal in his presence.",
     "cash_exposed": "When a visitor comes in, banknotes are lying openly on the desk.",
     "cash_handling": "Cash is handed over without being counted in front of the client.",
+    "other": "In these frames the cashier clearly breaks a cash-handling rule (for example leaves cash unattended, hands over cash without counting it, or lets an outsider handle cash).",
 }
 # For these types the scan already used a zoomed, targeted check; the judge refines but does not veto.
 NO_VETO = {"valuables_left", "unlocked_workstation"}
@@ -298,7 +307,7 @@ d) an extra person (not the served client) approaches the cashier's desk
 e) hands cash over without counting it
 f) takes a bag of valuables from someone who leaves immediately
 Answer ONLY with JSON: {{"v": true or false, "type": "<a-f or none>", "p": <0-100 plausibility>, "frame": <1-{n}>}}"""
-SECOND_LOOK_TYPES = {"a": "valuables_left", "b": "phone_use", "c": "personal_items", "d": "outsider_in_cash_area",
+SECOND_LOOK_TYPES = {"a": "other", "b": "phone_use", "c": "personal_items", "d": "outsider_in_cash_area",
                      "e": "cash_handling", "f": "collection_bag"}
 
 
@@ -379,7 +388,8 @@ def second_look(frames: list[Frame], duration: float, deadline: float) -> list[d
         if _as_bool(js.get("v")) and typ and plaus >= 0.8:
             t = picks[k].t
             found.append({"id": typ, "t": t, "conf": 0.6 * plaus, "detail": "на кадрах зафиксировано действие, требующее проверки",
-                          "evidence_t": [t, picks[min(2, k + 1)].t], "from_second_look": True})
+                          "evidence_t": [t, picks[min(2, k + 1)].t], "from_second_look": True,
+                          "letter": str(js.get("type", "")).strip().lower()[:1]})
     return found
 
 
@@ -428,7 +438,7 @@ def _annotated_jpeg(frame: Frame, box: list[float] | None, label: str) -> bytes:
 
 def build_violation(ev: dict, frames: list[Frame]) -> dict:
     spec = REGISTRY["violations"][ev["id"]]
-    doc = REGISTRY["documents"][spec["doc"]]
+    doc = REGISTRY["documents"].get(spec.get("doc") or "")
     j = ev.get("judge") or {}
     box = (j.get("box") or {})
     ev_frames, used = [], set()
@@ -451,8 +461,9 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
         if j["seen"]:
             seen = f"{ev['detail']}. {j['seen']}" if ev["id"] in NO_VETO else j["seen"]
     conf = round(max(0.05, min(0.99, conf)), 2)
-    desc = (f"{tc:.1f} с: {seen.rstrip('.')}. {spec['explain']} Вероятность: {round(conf * 100)}%. "
-            f"Основание: {doc['short']}, {spec['clause']}.")
+    basis = f"{doc['short']}, {spec['clause']}" if doc else "источник не определён, требуется проверка человеком"
+    desc = (f"{tc:.1f} с: {seen.rstrip('.')}. {spec['explain']} Уверенность модели: {round(conf * 100)}%. "
+            f"Основание: {basis}.")
     return {
         "type": spec["name"],
         "timecode_sec": tc,
@@ -465,7 +476,8 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
         "boxes": [{"t": box["t"], "bbox": box["bbox"], "label": box.get("label", "")}] if box.get("bbox") else [],
         "escalated": bool(j),
         "judge_confirmed": bool(j and j.get("confirmed")),
-        "regulation": {"document": doc["short"], "clause": spec["clause"], "url": doc["url"]},
+        "regulation": ({"document": doc["short"], "clause": spec["clause"], "url": doc["url"]} if doc
+                       else {"document": "Источник не определён", "clause": "требуется проверка человеком", "url": ""}),
     }
 
 
@@ -512,16 +524,27 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     if use_judge:
         progress(0.85, "проверка подозрительных моментов (8B)")
         if not events and time.time() + JUDGE_SEC < deadline:
-            events = second_look(frames, duration, deadline - JUDGE_SEC)
+            had_departure = bool(find_departures(states))
+            events = []
+            for ev in second_look(frames, duration, deadline - JUDGE_SEC):
+                # The dedicated "cashier left" check already inspected every departure and found nothing.
+                if ev["letter"] == "a" and had_departure:
+                    log.info("second look 'walked away' at %.1f ignored: departure check found nothing", ev["t"])
+                    continue
+                events.append(ev)
             stats["candidates"] += len(events)
         kept = []
         for ev in sorted(events, key=lambda e: -e["conf"]):
             if time.time() + JUDGE_SEC > deadline:
-                kept.append(ev)  # no time left to judge: keep the scan result as is
+                if not ev.get("from_second_look"):
+                    kept.append(ev)  # no time left to judge: keep the scan result; unconfirmed second-look hints are dropped
                 continue
             ev["judge"] = judge_event(ev, frames)
             stats["escalations"] += 1
-            if ev["id"] not in NO_VETO and not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35:
+            # Second-look findings need an explicit confirmation by the judge (a second, independent look).
+            weak = (not ev["judge"]["confirmed"] or ev["judge"]["plausibility"] < 0.6) if ev.get("from_second_look") \
+                else (not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35)
+            if ev["id"] not in NO_VETO and weak:
                 log.info("judge rejected %s@%.1f", ev["id"], ev["t"])
                 stats["rejected"] += 1
                 continue
