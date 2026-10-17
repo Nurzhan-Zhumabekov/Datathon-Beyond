@@ -16,6 +16,9 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent))
 from labels import norm, read_labels  # noqa: E402
 
+# Per violation type: in how many videos it fired, split by ground truth (violation video / clean video).
+BY_TYPE: dict[str, list[int]] = {}
+
 # Byte-identical duplicates in the dataset: evaluate each pair once.
 DUPLICATES = {"X-47": "X-4", "X-48": "X-5"}
 
@@ -114,6 +117,10 @@ def main() -> None:
         errs_tc.sort()
         print(f"timecode error: median {errs_tc[len(errs_tc) // 2]:.1f}s, within 2s: {sum(e <= 2 for e in errs_tc)}/{len(errs_tc)}")
     print(f"max time per video: {max(r['_elapsed'] for _, r in results)}s")
+    if BY_TYPE:
+        print("\nby type (videos where it fired): on violation videos / on clean videos")
+        for typ, (on_v, on_c) in sorted(BY_TYPE.items(), key=lambda kv: -sum(kv[1])):
+            print(f"  {on_v:3d} / {on_c:3d}  {typ}")
 
 
 def report(p, res, labels, errs_tc, tp, fp, tn, fn):
@@ -132,6 +139,9 @@ def report(p, res, labels, errs_tc, tp, fp, tn, fn):
         elif truth and not pred: fn += 1
         elif not truth and pred: fp += 1
         else: tn += 1
+        for typ in {v["type"] for v in res.get("violations", [])}:
+            row = BY_TYPE.setdefault(typ, [0, 0])
+            row[0 if truth else 1] += 1
         tcs = [v["timecode_sec"] for v in res.get("violations", [])]
         tc_err = None
         if truth and pred and secs and tcs:
