@@ -64,21 +64,42 @@ def _small(img, side=640):
 
 
 def read_state(frame: Frame) -> dict:
+    """One scanner read. "parsed" is False when the answer is not usable JSON (the caller retries / carries over)."""
     raw = vlm.ask([_small(frame.image)], STATE_PROMPT, max_tokens=60)
-    js = vlm.parse_json(raw) or {}
+    js = vlm.parse_json(raw)
+    parsed = isinstance(js, dict) and "cashier_present" in js
+    js = js if isinstance(js, dict) else {}
     try:
         people = int(js.get("people"))
     except (TypeError, ValueError):
         people = None
     return {"t": frame.t, "people": people, "cashier_present": _as_bool(js.get("cashier_present")),
             "phone": _as_bool(js.get("phone")), "personal_items": _as_bool(js.get("personal_items")),
-            "eating": _as_bool(js.get("eating")), "raw": raw}
+            "eating": _as_bool(js.get("eating")), "raw": raw, "parsed": parsed}
+
+
+def read_state_safe(frame: Frame, prev: dict | None) -> dict:
+    """Retry once; if the model still gives no usable answer, keep the previous frame's state
+    (an unreadable answer must never be interpreted as "the cashier is absent")."""
+    st = read_state(frame)
+    if not st["parsed"]:
+        st = read_state(frame)
+    if not st["parsed"]:
+        log.warning("unparsed scanner answer at %.1fs: %r", frame.t, st["raw"][:120])
+        if prev is not None:
+            return dict(prev, t=frame.t, reused=True, unparsed=True)
+        st.update(cashier_present=True, people=1, unparsed=True)  # neutral start: no departure can be invented
+    return st
 
 
 LOCATE_DESK = 'Locate the desk (table top) on which the laptop stands. Output only JSON: {"bbox_2d": [x1, y1, x2, y2]}'
 DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List only the objects you can clearly see lying on the desk surface, including small items such as banknotes, money bundles, envelopes, bags or cups. Do not guess; if the desk is empty apart from the equipment, say so.
 Answer ONLY with JSON: {"objects_on_desk": ["..."]}"""
 
+
+VALUABLES = (r"\b(banknotes?|bills?|money|cash|bundles?|stacks? of|envelopes?|bags?|handbags?|purses?|wallets?|"
+             r"tablets?|ipad|mobile phones?|smartphones?|cell ?phones?|cups?|mugs?|bottles?|drinks?|food|coats?|jackets?|"
+             r"green object|coins?)\b")
 
 RU_OBJECTS = [("money bundle", "пачка денег"), ("banknotes", "купюры"), ("banknote", "купюра"), ("money", "деньги"),
               ("cash", "наличные"), ("bundle", "пачка"), ("mobile phone", "мобильный телефон"), ("smartphone", "смартфон"),
@@ -117,18 +138,16 @@ def check_left_behind(frame: Frame, extra: Frame | None = None) -> dict:
         js = vlm.parse_json(vlm.ask([_crop(fr, desk)], DESK_PROMPT, max_tokens=90, kind=kind))
         found = js.get("objects_on_desk") if isinstance(js, dict) else js
         objs += found if isinstance(found, list) else ([str(found)] if found else [])
-    # Anything that is not standard desk equipment counts as left behind ("phone" alone = the desk phone).
+    # Only real valuables / personal items count as "left behind" (a notepad, papers or equipment never do).
     suspicious = []
     for o in objs:
         s = re.sub(r"\(.*?\)", "", str(o).lower()).strip()
-        if s in ("phone", "telephone", "phones"):
+        if not s or any(w in s for w in STANDARD_EQUIPMENT):
             continue
-        # Ordinary stationery is normal on a desk and is often hallucinated on an empty desk: ignore it.
-        if re.search(r"\b(documents?|papers?|keys?|pens?|pencils?|scissors|stapler|notebooks?|folders?|sticky notes?)\b", s):
-            continue
-        ru = to_russian(s)
-        if s and not any(w in s for w in STANDARD_EQUIPMENT) and ru not in suspicious:
-            suspicious.append(ru)
+        if re.search(VALUABLES, s):
+            ru = to_russian(s)
+            if ru not in suspicious:
+                suspicious.append(ru)
     screen = None
     lap = vlm.parse_bbox(vlm.ask([frame.image], LOCATE_LAPTOP, max_tokens=40))
     if lap:
@@ -215,7 +234,8 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
     # A. Cashier leaves: check what is left behind on an empty-room frame ~1.5 s after leaving.
     for i in find_departures(states):
         t_abs = ts[i]
-        if time.time() > deadline:
+        if time.time() + DEPARTURE_SEC > deadline:
+            note("Бюджет времени: осмотр стола пропущен", "rules")
             break
         f_after = min(frames, key=lambda f: abs(f.t - (t_abs + 1.5)))
         f_later = min(frames, key=lambda f: abs(f.t - (t_abs + 3.5)))
@@ -295,7 +315,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
     # F. Someone enters while banknotes lie openly on the desk (stable count change 1 -> 2+), at most 3 checks.
     checks = 0
     for i in range(2, len(states) - 1):
-        if time.time() > deadline or checks >= 3:
+        if time.time() + ENTRY_SEC > deadline or checks >= 3:
             break
         if cnt[i - 2] == cnt[i - 1] == 1 and cnt[i] >= 2 and cnt[i + 1] >= 2 and states[i - 1]["cashier_present"]:
             checks += 1
@@ -432,7 +452,7 @@ def second_look(frames: list[Frame], duration: float, deadline: float) -> list[d
     span = duration / k_windows
     found = []
     for w in range(k_windows):
-        if time.time() + 8 > deadline:
+        if time.time() + WINDOW_SEC > deadline:
             break
         ts = [w * span + span * q for q in (0.15, 0.5, 0.85)]
         picks = [min(frames, key=lambda f: abs(f.t - t)) for t in ts]
@@ -551,8 +571,11 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
 
 
 SEC_PER_FRAME = 3.4    # measured on MacBook Air M4 (Qwen3-VL-4B 4-bit, 640 px)
-CHECKS_RESERVE = 18.0  # time kept for the "left behind" / entry checks
-JUDGE_SEC = 14.0       # one judge call pair (verify + locate) with Qwen3-VL-8B
+DEPARTURE_SEC = 25.0   # desk zoom (4B + 8B) + laptop locate + screen read, measured
+ENTRY_SEC = 9.0        # two desk reads when someone walks in
+WINDOW_SEC = 11.0      # one second-look window with the 8B
+JUDGE_SEC = 25.0       # one judge call pair (verify + locate) with Qwen3-VL-8B, measured 15-25 s
+CHECKS_RESERVE = DEPARTURE_SEC + ENTRY_SEC
 
 
 def analyze(path: Path, progress, budget: float | None = None) -> dict:
@@ -569,8 +592,8 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     use_judge = vlm.available("judge")
 
     # ~1 sample per 1.5 s; long videos / busy queue -> sparser sampling to stay within the time budget.
-    reserve = CHECKS_RESERVE + (3 * JUDGE_SEC if use_judge else 0)
-    max_frames = int(max(6, min(18, (budget - reserve) / SEC_PER_FRAME)))
+    reserve = CHECKS_RESERVE + (2 * JUDGE_SEC if use_judge else 0)
+    max_frames = int(max(6, min(30, (budget - reserve) / SEC_PER_FRAME)))
     step = max(1.5, duration / max_frames)
     picked, next_t = [], 0.0
     for f in frames:
@@ -583,7 +606,18 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
          model="Qwen3-VL-4B", phase="scan", frames_total=len(picked), frames_done=0)
     states, prev = [], None
     ref_img, skip_run, reused = None, 0, 0
-    for i, f in enumerate(picked):
+    scan_start, i = time.time(), 0
+    while i < len(picked):
+        f = picked[i]
+        # Measured speed: if the rest of the plan does not fit, drop every other remaining frame
+        # (keeps coverage of the whole video instead of cutting off its end).
+        if i >= 3:
+            per = (time.time() - scan_start) / i
+            left = deadline - reserve - time.time()
+            if per * (len(picked) - i) > left and len(picked) - i > 2:
+                picked = picked[:i] + picked[i::2]
+                note(f"Сканер медленнее плана: шаг увеличен, осталось {len(picked) - i} кадров", "4B")
+                set_stage(_rep["frac"], _rep["stage"], frames_total=len(picked))
         if time.time() > deadline - reserve:
             log.warning("time budget hit after %d/%d frames", i, len(picked))
             note(f"Бюджет времени: просканировано {i} из {len(picked)} кадров", "4B")
@@ -595,10 +629,11 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             skip_run += 1
             reused += 1
         else:
-            st = read_state(f)
+            st = read_state_safe(f, states[-1] if states else None)
             ref_img, skip_run = f.image, 0
         states.append(st)
-        set_stage(0.05 + 0.7 * (i + 1) / len(picked), f"сканирование кадров {i + 1}/{len(picked)}", frames_done=i + 1)
+        i += 1
+        set_stage(0.05 + 0.7 * i / len(picked), f"сканирование кадров {i}/{len(picked)}", frames_done=i)
         sig = (st["people"], st["cashier_present"], st["phone"], st["personal_items"], st["eating"])
         if sig != prev:  # log only changes of the scene, not every frame
             extra = [w for w, flag in (("телефон", st["phone"]), ("личные вещи", st["personal_items"]),
@@ -641,7 +676,9 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             # Second-look findings already come from the expert model; the re-check adds the description and box
             # but does not veto them (vetoing lost real violations in testing).
             weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35
-            if ev["id"] not in NO_VETO and not ev.get("from_second_look") and weak:
+            crowd_near = max([s_["people"] or 0 for s_ in states if abs(s_["t"] - ev["t"]) <= 3.0] or [0])
+            outsider_veto = ev.get("from_second_look") and ev["id"] == "outsider_in_cash_area" and crowd_near <= 2
+            if ev["id"] not in NO_VETO and (not ev.get("from_second_look") or outsider_veto) and weak:
                 log.info("judge rejected %s@%.1f", ev["id"], ev["t"])
                 note(f"Эксперт 8B отклонил: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с)", "8B")
                 stats["rejected"] += 1

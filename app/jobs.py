@@ -19,7 +19,12 @@ log = logging.getLogger("jobs")
 
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
-_queue: "queue.Queue[str]" = queue.Queue()
+# Priority queue: jury API jobs (0) always run before website uploads (1); ties by upload time.
+_queue: "queue.PriorityQueue[tuple[int, float, str]]" = queue.PriorityQueue()
+
+
+def _enqueue(job: dict) -> None:
+    _queue.put((0 if job["source"] == "api" else 1, job["created_at"], job["job_id"]))
 
 
 def _job_path(job_id: str) -> Path:
@@ -47,8 +52,14 @@ def create_job(video_path: Path, source: str, filename: str = "") -> dict:
     with _lock:
         _jobs[job_id] = job
         _save(job)
-    _queue.put(job_id)
+    _enqueue(job)
     return job
+
+
+def waiting_ui_jobs() -> int:
+    with _lock:
+        return sum(1 for j in _jobs.values()
+                   if j["status"] == "processing" and j.get("source") == "ui" and j.get("stage") == "в очереди")
 
 
 def get_job(job_id: str) -> dict | None:
@@ -75,14 +86,14 @@ def queue_length() -> int:
 def queue_position(job_id: str) -> int:
     with _lock:
         waiting = [j for j in _jobs.values() if j["status"] == "processing" and j.get("stage") == "в очереди"]
-    waiting.sort(key=lambda j: j["created_at"])
+    waiting.sort(key=lambda j: (0 if j.get("source") == "api" else 1, j["created_at"]))
     ids = [j["job_id"] for j in waiting]
     return ids.index(job_id) + 1 if job_id in ids else 0
 
 
 def _worker(analyze_fn) -> None:
     while True:
-        job_id = _queue.get()
+        _prio, _ts, job_id = _queue.get()
         job = get_job(job_id)
         if not job:
             continue
@@ -93,6 +104,8 @@ def _worker(analyze_fn) -> None:
         waiting = _queue.qsize()
         left = job["created_at"] + config.JURY_LIMIT_SEC - started
         budget = max(25.0, min(config.TIME_BUDGET_SEC, left / (1 + waiting)))
+        if job["source"] != "api":
+            budget = min(budget, config.UI_BUDGET_SEC)  # a website upload must not hold up a jury video for long
 
         log_lines: list[dict] = []
 
@@ -133,7 +146,7 @@ def start(analyze_fn) -> None:
         if job["status"] == "processing":
             if Path(job["video_path"]).exists():
                 job["stage"] = "в очереди"
-                _queue.put(job["job_id"])
+                _enqueue(job)
             else:
                 job.update(status="failed", error="video lost after restart")
             _save(job)

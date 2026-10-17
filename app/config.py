@@ -43,7 +43,9 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 # Jury limit is 5 minutes per video including queueing; keep our own budget well below it.
-TIME_BUDGET_SEC = float(os.environ.get("TIME_BUDGET_SEC", "150"))
+TIME_BUDGET_SEC = float(os.environ.get("TIME_BUDGET_SEC", "200"))   # when the queue is empty
+UI_BUDGET_SEC = float(os.environ.get("UI_BUDGET_SEC", "120"))       # website uploads (jury API goes first)
+MAX_UPLOAD_MB = float(os.environ.get("MAX_UPLOAD_MB", "200"))       # jury files are ~29 MB
 JURY_LIMIT_SEC = 270.0  # 5 min minus a safety margin for upload and polling
 
 # Delete videos uploaded through the jury API right after processing (test videos must not be kept).
