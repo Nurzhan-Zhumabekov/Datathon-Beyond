@@ -72,7 +72,7 @@
   @media (max-width: 600px) { .wrap { padding: 0 16px 60px; } }
 
   /* ---------- hero ---------- */
-  .hero { text-align: center; padding: 14vh 0 6vh; }
+  .hero { text-align: center; padding: 3vh 0 6vh; }
   .rec { display: none; }
   .rec { white-space: nowrap; }
   @media (max-width: 600px) { .rec-extra, .chip.q { display: none; } .right .chip { padding: 5px 9px; } }
@@ -234,6 +234,49 @@
 
   #zoom { position: fixed; inset: 0; background: rgba(10,11,13,.9); display: none; align-items: center; justify-content: center; z-index: 30; cursor: zoom-out; }
   #zoom img { max-width: 95vw; max-height: 95vh; border-radius: 8px; }
+  /* typed gradient title */
+  .hero h1.typed { min-height: 1.1em; }
+  .hero h1 .tw { background: linear-gradient(100deg, #ffffff 0%, #dce7ff 30%, #8fb2ff 60%, #3b7bf6 85%, #ffffff 100%);
+    background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 6s ease-in-out infinite alternate; }
+  @keyframes shimmer { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+  .hero h1 .caret { display: inline-block; width: 3px; height: .9em; margin-left: 6px; vertical-align: -.08em; border-radius: 2px;
+    background: #3b7bf6; animation: blink 1s steps(1) infinite; }
+  .hero h1 .caret.done { animation: blink 1s steps(1) 3, fadeOut .6s ease 3s forwards; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes fadeOut { to { opacity: 0; } }
+  /* soft reveals */
+  .rv { opacity: 0; transform: translateY(16px); filter: blur(4px); transition: opacity .8s cubic-bezier(.2,.7,.1,1), transform .8s cubic-bezier(.2,.7,.1,1), filter .8s ease; }
+  .rv.in { opacity: 1; transform: none; filter: none; }
+  .compose { transition: border-color .3s ease, box-shadow .3s ease; }
+  .compose:hover, .compose:focus-within { border-color: rgba(59,123,246,.45); box-shadow: 0 0 0 4px rgba(59,123,246,.08); }
+  @media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; filter: none; transition: none; } .hero h1 .tw { animation: none; } .hero h1 .caret { display: none; } }
+
+  /* halftone wordmark footer (ported from a React component to plain JS) */
+  .hwf-hero { position: relative; margin: -64px calc(50% - 50vw) 0; height: clamp(200px, 27vw, 380px); overflow: hidden; cursor: crosshair; }
+  .hwf-hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hwf-hero::after { content: ""; position: absolute; inset: auto 0 0 0; height: 40%; pointer-events: none;
+    background: linear-gradient(transparent, #000); }
+  .hwf-hint { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 14px; z-index: 2; font: 10.5px var(--mono); letter-spacing: .18em;
+    text-transform: uppercase; color: rgba(233,228,218,.45); pointer-events: none; }
+  .hwf-root { position: relative; width: 100%; overflow: hidden; margin-top: 90px; padding-bottom: 28px;
+    background: #000; color: #e9e4da; -webkit-font-smoothing: antialiased; border-top: 1px solid var(--line); }
+  .hwf-top { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, 1fr));
+    gap: 24px; padding: clamp(22px, 3.4vw, 40px) clamp(20px, 3.4vw, 44px) 0;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; line-height: 1.75; }
+  .hwf-brand strong { display: block; font-weight: 500; }
+  .hwf-brand span { opacity: .45; }
+  .hwf-col h3 { margin: 0; font: inherit; opacity: .4; font-weight: 500; }
+  .hwf-col ul { list-style: none; margin: 0; padding: 0; }
+  .hwf-col a, .hwf-up { color: inherit; text-decoration: none; opacity: .78; background: none; border: 0; padding: 0; box-shadow: none; border-radius: 0;
+    font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer;
+    background-image: linear-gradient(currentColor, currentColor); background-size: 0% 1px; background-repeat: no-repeat; background-position: 0 100%;
+    transition: opacity .25s ease, background-size .35s cubic-bezier(.2,.7,.1,1); }
+  .hwf-col a:hover, .hwf-up:hover { opacity: 1; background-size: 100% 1px; background-color: transparent; }
+  .hwf-rule { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    margin: clamp(18px, 2.6vw, 30px) clamp(20px, 3.4vw, 44px) 0; padding-top: 12px; border-top: .5px solid rgba(233,228,218,.16);
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: rgba(233,228,218,.5); }
+  @media (max-width: 720px) { .hwf-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 18px; } .hwf-brand { grid-column: 1 / -1; } .hwf-hint { display: none; } }
   .foot { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
   .note { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
 </style>
@@ -260,12 +303,13 @@
 
     <!-- ===== Upload / landing ===== -->
     <section id="uploadView">
+      <div class="hwf-hero" id="hwfHero" aria-label="beyond"><canvas aria-hidden="true"></canvas><span class="hwf-hint">наведите · кликните</span></div>
       <div class="hero">
         <span class="rec"><i></i>CAM 01 · <span id="clock">00:00:00</span><span class="rec-extra"> · ЛОКАЛЬНЫЙ АНАЛИЗ</span></span>
-        <h1>Видеоконтроль кассы</h1>
+        <h1 class="typed" aria-label="Видеоконтроль кассы"><span class="tw"></span><span class="caret"></span></h1>
         <p class="lead">Загрузите запись камеры над кассой. BEYOND найдёт момент возможного нарушения, покажет кадр и норму НБРК.</p>
 
-        <div class="compose">
+        <div class="compose rv" data-d="0">
           <div id="drop">
             <div class="ph"><b>Перетащите запись камеры над кассой или нажмите, чтобы выбрать</b></div>
             <div class="fmt">.mov / .mp4 · камера над кассой · до ~150 секунд</div>
@@ -281,12 +325,12 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
           </div>
         </div>
-        <div class="sub">Загрузите запись кассы.<br>BEYOND находит нарушение, показывает кадр и норму.</div>
+        <div class="sub rv" data-d="1">Загрузите запись кассы.<br>BEYOND находит нарушение, показывает кадр и норму.</div>
       </div>
 
-      <div class="marquee" aria-label="Нормы, которые проверяет BEYOND"><div class="track" id="track"></div></div>
+      <div class="marquee rv" data-d="2" aria-label="Нормы, которые проверяет BEYOND"><div class="track" id="track"></div></div>
 
-      <div class="section" id="how">
+      <div class="section rv-scroll" id="how">
         <h2>Анализ в три шага<span>Две модели, одна эскалация</span></h2>
         <div class="steps">
           <div class="step"><div class="n">01</div><h4>Загрузите запись</h4><p>Видео декодируется с точными метками времени. Файл не покидает сервер и удаляется после анализа.</p></div>
@@ -299,7 +343,7 @@
         </div>
       </div>
 
-      <div class="section" id="cases">
+      <div class="section rv-scroll" id="cases">
         <h2>Что находит<span>Только то, что видно на записи</span></h2>
         <div class="cases">
           <div class="case"><h4>Ценности без присмотра</h4><p>Кассир уходит, а на столе остаются деньги, конверт, сумка или планшет.</p><div class="norm-ref">ПРАВИЛА № 231 · П. 20</div></div>
@@ -311,7 +355,7 @@
         </div>
       </div>
 
-      <div class="section" id="recent">
+      <div class="section rv-scroll" id="recent">
         <h2>Последние проверки<span>Хранятся только в этом браузере</span></h2>
         <div class="panel" style="margin-top:20px"><table class="list" id="recentTable"></table></div>
       </div>
@@ -383,11 +427,21 @@
         чего не видно на видео (проводки, сверка, подлинность купюр, намерения людей). <span id="summary"></span></div>
     </section>
 
-    <footer class="foot">
-      <span>BEYOND · Datathon 26 · ForteBank</span>
-      <span class="mono">Qwen3‑VL‑4B → Qwen3‑VL‑8B · MLX · 0 облачных вызовов</span>
-    </footer>
   </main>
+  <footer class="hwf-root" id="hwf">
+    <div class="hwf-top">
+      <div class="hwf-brand"><strong>BEYOND</strong><span>Datathon 26 · ForteBank</span></div>
+      <nav class="hwf-col" aria-label="Сервис"><h3>Сервис</h3><ul>
+        <li><a href="/">Новый анализ</a></li><li><a href="#how">Как это работает</a></li><li><a href="#cases">Что находит</a></li></ul></nav>
+      <nav class="hwf-col" aria-label="Модели"><h3>Модели</h3><ul>
+        <li><a href="#how">Qwen3‑VL‑4B · сканер</a></li><li><a href="#how">Qwen3‑VL‑8B · эксперт</a></li><li><a href="#how">MLX · локально</a></li></ul></nav>
+      <nav class="hwf-col" aria-label="Нормы"><h3>Нормы</h3><ul>
+        <li><a href="https://adilet.zan.kz/rus/docs/V1900019680" target="_blank" rel="noopener">Правила № 231</a></li>
+        <li><a href="https://adilet.zan.kz/rus/docs/V2000020075" target="_blank" rel="noopener">Правила № 14</a></li>
+        <li><a href="https://github.com/Nurzhan-Zhumabekov/Datathon-Beyond" target="_blank" rel="noopener">Код на GitHub</a></li></ul></nav>
+    </div>
+    <div class="hwf-rule"><span>0 облачных вызовов · ИИ находит, человек решает</span><button type="button" class="hwf-up" id="hwfUp">Наверх ↑</button></div>
+  </footer>
 </div>
 <div id="zoom"><img alt=""></div>
 
@@ -698,6 +752,117 @@ if (jobParam) openJob(jobParam);
 if (location.hash === "#recent") setTimeout(() => $("recent").scrollIntoView(), 50);
 if (location.hash === "#how") setTimeout(() => $("how").scrollIntoView(), 50);
 if (location.hash === "#cases") setTimeout(() => $("cases").scrollIntoView(), 50);
+// ---------- Loading: typed gradient title, then soft reveals ----------
+(function intro() {
+  const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const h1 = document.querySelector(".hero h1.typed"), tw = h1 && h1.querySelector(".tw"), caret = h1 && h1.querySelector(".caret");
+  const text = h1 ? h1.getAttribute("aria-label") : "";
+  const reveal = () => document.querySelectorAll(".hero .rv, .marquee.rv").forEach((el) => setTimeout(() => el.classList.add("in"), reduced ? 0 : 160 * (+el.dataset.d || 0)));
+  if (!tw) return reveal();
+  if (reduced) { tw.textContent = text; reveal(); return; }
+  let i = 0;
+  const type = () => {
+    tw.textContent = text.slice(0, ++i);
+    if (i < text.length) setTimeout(type, text[i - 1] === " " ? 110 : 45 + Math.random() * 45);
+    else { caret.classList.add("done"); setTimeout(reveal, 150); }
+  };
+  setTimeout(type, 350);
+})();
+
+// Sections fade up as they scroll into view
+(function scrollReveal() {
+  const els = document.querySelectorAll(".rv-scroll");
+  els.forEach((el) => el.classList.add("rv"));
+  if (!("IntersectionObserver" in window)) { els.forEach((el) => el.classList.add("in")); return; }
+  const io = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
+  els.forEach((el) => io.observe(el));
+})();
+
+// ---------- Halftone wordmark in the header (plain-JS port of the React component) ----------
+(function halftoneHeader() {
+  const root = document.getElementById("hwfHero"); if (!root) return;
+  const canvas = root.querySelector("canvas"), ctx = canvas.getContext("2d"); if (!ctx) return;
+  const O = { word: "beyond", bg: "#000000", ink: [233, 228, 218], warm: [59, 123, 246], gap: 6, radius: 95, crop: 0.12, grain: 0.5,
+    font: '800 100px -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif' };
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let w = 0, h = 0, dpr = 1, px = -1e5, py = -1e5, raf = 0, visible = true, awake = true, ring = { x: 0, y: 0, t: -1 };
+  let dots = new Float32Array(0), count = 0, grainTile = null, assembled = false;
+  const radiusFor = (c, gap) => Math.sqrt(Math.max(0, Math.min(1, c))) * gap * 0.56;
+  const step = (x, y, vx, vy, hx, hy, r) => {
+    const dx = x - px, dy = y - py, d2 = dx * dx + dy * dy;
+    if (r > 0 && d2 < r * r) { const d = Math.sqrt(d2) + 0.001, f = (1 - d / r) * 2.6; vx += (dx / d) * f; vy += (dy / d) * f; }
+    vx = (vx + (hx - x) * 0.05) * 0.84; vy = (vy + (hy - y) * 0.05) * 0.84;
+    return [x + vx, y + vy, vx, vy];
+  };
+  const layout = () => {
+    const rect = root.getBoundingClientRect();
+    w = Math.max(1, Math.round(rect.width)); h = Math.max(1, Math.round(rect.height));
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const mask = document.createElement("canvas"); mask.width = w; mask.height = h;
+    const m = mask.getContext("2d", { willReadFrequently: true }); if (!m) return;
+    m.font = O.font;
+    const fit = (w * 1.02 / m.measureText(O.word).width) * 100;
+    m.font = O.font.replace("100px", fit + "px");
+    const box = m.measureText(O.word), cap = box.actualBoundingBoxAscent || fit * 0.72;
+    m.fillStyle = "#000"; m.textBaseline = "alphabetic";
+    m.fillText(O.word, (w - box.width) / 2, h + cap * O.crop);
+    const img = m.getImageData(0, 0, w, h).data, gap = O.gap, cols = Math.ceil(w / gap), rows = Math.ceil(h / gap), tmp = [];
+    for (let gy = 0; gy < rows; gy++) for (let gx = 0; gx < cols; gx++) {
+      let sum = 0;
+      for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
+        const x = Math.min(w - 1, Math.floor(gx * gap + ((sx + 0.5) * gap) / 3)), y = Math.min(h - 1, Math.floor(gy * gap + ((sy + 0.5) * gap) / 3));
+        sum += img[(y * w + x) * 4 + 3];
+      }
+      const cov = sum / (9 * 255); if (cov < 0.06) continue;
+      const hx = gx * gap + gap / 2, hy = gy * gap + gap / 2;
+      const sx0 = assembled || reduced ? hx : hx + (Math.random() - 0.5) * w * 0.9, sy0 = assembled || reduced ? hy : hy - Math.random() * h * 1.2;
+      tmp.push(sx0, sy0, 0, 0, hx, hy, radiusFor(cov, gap));
+    }
+    dots = new Float32Array(tmp); count = tmp.length / 7; assembled = true;
+    grainTile = document.createElement("canvas"); grainTile.width = grainTile.height = 256;
+    const g = grainTile.getContext("2d");
+    if (g) { const id = g.createImageData(256, 256); for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = Math.random() < 0.5 ? 0 : 255; } g.putImageData(id, 0, 0); }
+    awake = true;
+  };
+  const draw = (now) => {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = O.bg; ctx.fillRect(0, 0, w, h);
+    const r = reduced ? 0 : O.radius, ringAge = ring.t < 0 ? 1e9 : now - ring.t, ringR = ringAge * 0.9;
+    let moving = false;
+    for (let i = 0; i < count; i++) {
+      const j = i * 7; let x = dots[j], y = dots[j + 1], vx = dots[j + 2], vy = dots[j + 3]; const hx = dots[j + 4], hy = dots[j + 5];
+      if (!reduced) {
+        if (ringAge < 900) {
+          const dx = hx - ring.x, dy = hy - ring.y, d = Math.sqrt(dx * dx + dy * dy) + 0.001, band = 1 - Math.min(1, Math.abs(d - ringR) / 26);
+          if (band > 0) { const f = band * 3.2 * (1 - ringAge / 900); vx += (dx / d) * f; vy += (dy / d) * f; }
+        }
+        [x, y, vx, vy] = step(x, y, vx, vy, hx, hy, r);
+        if (Math.abs(vx) + Math.abs(vy) > 0.02 || Math.abs(x - hx) + Math.abs(y - hy) > 0.05) moving = true;
+        else { x = hx; y = hy; vx = 0; vy = 0; }
+        dots[j] = x; dots[j + 1] = y; dots[j + 2] = vx; dots[j + 3] = vy;
+      }
+      const k = Math.min(1, Math.hypot(x - hx, y - hy) / 28);
+      ctx.fillStyle = k > 0.02 ? `rgb(${Math.round(O.ink[0] + (O.warm[0] - O.ink[0]) * k)},${Math.round(O.ink[1] + (O.warm[1] - O.ink[1]) * k)},${Math.round(O.ink[2] + (O.warm[2] - O.ink[2]) * k)})` : `rgb(${O.ink})`;
+      ctx.beginPath(); ctx.arc(x, y, dots[j + 6], 0, 6.2832); ctx.fill();
+    }
+    if (grainTile && O.grain > 0) {
+      ctx.globalAlpha = O.grain * 0.09; ctx.globalCompositeOperation = "overlay";
+      const pat = ctx.createPattern(grainTile, "repeat"); if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, w, h); }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    }
+    awake = moving || ringAge < 900 || px > -1e4;
+  };
+  const loop = (now) => { raf = 0; if (!visible) return; draw(now); if (awake) raf = requestAnimationFrame(loop); };
+  const wake = () => { awake = true; if (!raf && visible) raf = requestAnimationFrame(loop); };
+  const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  layout(); draw(performance.now()); wake();
+  root.addEventListener("pointermove", (e) => { [px, py] = local(e); wake(); });
+  root.addEventListener("pointerleave", () => { px = py = -1e5; wake(); });
+  root.addEventListener("pointerdown", (e) => { if (reduced || e.target.closest("a,button")) return; const [x, y] = local(e); ring = { x, y, t: performance.now() }; wake(); });
+  new ResizeObserver(() => { layout(); wake(); }).observe(root);
+  new IntersectionObserver((en) => { visible = en[0] ? en[0].isIntersecting : true; if (visible) wake(); }).observe(root);
+})();
+document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
 </script>
 </body>
 </html>
