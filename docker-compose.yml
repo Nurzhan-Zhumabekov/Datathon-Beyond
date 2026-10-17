@@ -1,0 +1,34 @@
+# One command start: docker compose up -d
+# Before the first start: scripts/download_gguf.ps1 (or the same files from Hugging Face by hand) puts the weights in ./models,
+# and API_KEY is set in the environment or in a .env file next to this file. After that no internet is needed.
+# Needs an NVIDIA GPU with the NVIDIA Container Toolkit. Without a GPU remove the `deploy` block and the `-ngl 99` flag
+# (the 4B model then runs on the CPU, much slower).
+services:
+  llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    command: >
+      -m /models/Qwen3VL-4B-Instruct-Q4_K_M.gguf
+      --mmproj /models/mmproj-Qwen3VL-4B-Instruct-F16.gguf
+      --host 0.0.0.0 --port 8081 -ngl 99 -c 8192 --alias qwen3-vl-4b
+    volumes:
+      - ./models:/models:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      API_KEY: ${API_KEY:?set API_KEY in the environment or in a .env file}
+    volumes:
+      - ./data:/data
+    depends_on:
+      - llama
+    restart: unless-stopped

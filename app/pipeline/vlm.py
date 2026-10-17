@@ -14,6 +14,7 @@ import base64
 import io
 import json
 import logging
+import os
 import re
 import tempfile
 import threading
@@ -41,9 +42,19 @@ def _url(kind: str) -> str:
     return (config.VLM_URL if kind == "scan" else config.JUDGE_URL).rstrip("/")
 
 
+def _allowed_hosts() -> set[str]:
+    """Loopback plus single-label service names from VLM_ALLOWED_HOSTS (Docker Compose: the model server is `llama`).
+    A name with a dot is never accepted, so a typo cannot point the frames at an internet host."""
+    extra = {h.strip() for h in os.environ.get("VLM_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    for h in [h for h in extra if "." in h]:
+        log.error("VLM_ALLOWED_HOSTS entry %r ignored: only single-label service names are allowed", h)
+        extra.discard(h)
+    return _LOOPBACK | extra
+
+
 def _local_url(kind: str) -> str:
     url = _url(kind)
-    if urlparse(url).hostname not in _LOOPBACK:
+    if urlparse(url).hostname not in _allowed_hosts():
         raise RuntimeError(f"{kind} model URL {url!r} is not a local address: video frames must stay on this machine")
     return url
 

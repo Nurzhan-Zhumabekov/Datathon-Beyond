@@ -141,3 +141,21 @@ def test_refused_connection_is_retried_once_then_reported(monkeypatch):
     monkeypatch.setattr(vlm, "_RETRY_PAUSE_SEC", 0)
     with pytest.raises(RuntimeError, match="not answering"):
         vlm.ask([_img()], "q")
+
+
+def test_compose_service_name_is_allowed_only_when_listed(monkeypatch):
+    monkeypatch.setattr(config, "VLM_BACKEND", "openai")
+    monkeypatch.setattr(config, "VLM_URL", "http://llama:8081")
+    monkeypatch.delenv("VLM_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(RuntimeError, match="local"):
+        vlm._local_url("scan")
+    monkeypatch.setenv("VLM_ALLOWED_HOSTS", "llama")
+    assert vlm._local_url("scan") == "http://llama:8081"
+
+
+def test_dotted_hosts_are_never_allowed(monkeypatch):
+    monkeypatch.setattr(config, "VLM_BACKEND", "openai")
+    monkeypatch.setattr(config, "VLM_URL", "https://api.example.com")
+    monkeypatch.setenv("VLM_ALLOWED_HOSTS", "api.example.com, llama")
+    with pytest.raises(RuntimeError, match="local"):
+        vlm._local_url("scan")
