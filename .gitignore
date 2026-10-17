@@ -1,0 +1,17 @@
+# Организаторские данные и результаты не коммитим
+data/
+out/
+out_*/
+*.parquet
+examples/demo_*.csv
+
+# Окружение и кэши
+.venv/
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+catboost_info/
+
+# Ключи
+.env
+*.key
