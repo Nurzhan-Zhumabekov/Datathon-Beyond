@@ -8,11 +8,14 @@ Stage 4  rules over the timeline -> events; evidence frames + factual descriptio
 """
 import base64
 import logging
+import os
 import re
 import time
 from pathlib import Path
 
+import numpy as np
 import yaml
+from PIL import Image
 
 from .. import config
 from ..video import Frame, probe, sample_frames, to_jpeg_bytes
@@ -131,6 +134,24 @@ def check_left_behind(frame: Frame, extra: Frame | None = None) -> dict:
     if lap:
         screen = vlm.ask([_crop(frame, lap, margin=0.02, scale=4)], SCREEN_PROMPT, max_tokens=4).strip().lower()
     return {"objects": objs, "suspicious": suspicious, "screen_bright": bool(screen and "bright" in screen), "desk": desk}
+
+
+# ---------------- skipping unchanged frames ----------------
+
+SKIP_UNCHANGED = os.environ.get("SKIP_UNCHANGED", "1") == "1"
+CHANGE_THRESHOLD = float(os.environ.get("CHANGE_THRESHOLD", "5.0"))  # max block change, 0..255
+MAX_SKIP_RUN = 2  # never reuse an answer for more than 2 frames in a row
+
+
+def frame_change(a: Image.Image, b: Image.Image) -> float:
+    """Largest local change between two frames: mean absolute difference of 8x8 blocks on a 48x88 grayscale copy.
+    A person entering or a hand picking something up changes at least one block a lot."""
+    size = (48, 88)
+    x = np.asarray(a.convert("L").resize(size), dtype=np.float32)
+    y = np.asarray(b.convert("L").resize(size), dtype=np.float32)
+    d = np.abs(x - y)[: size[1] // 8 * 8, : size[0] // 8 * 8]
+    blocks = d.reshape(size[1] // 8, 8, size[0] // 8, 8).mean(axis=(1, 3))
+    return float(blocks.max())
 
 
 # ---------------- live status for the dashboard ----------------
@@ -561,12 +582,21 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     note(f"Видео {duration:.0f} с → сканер Qwen3-VL-4B: {len(picked)} кадров, шаг {step:.1f} с", "4B",
          model="Qwen3-VL-4B", phase="scan", frames_total=len(picked), frames_done=0)
     states, prev = [], None
+    ref_img, skip_run, reused = None, 0, 0
     for i, f in enumerate(picked):
         if time.time() > deadline - reserve:
             log.warning("time budget hit after %d/%d frames", i, len(picked))
             note(f"Бюджет времени: просканировано {i} из {len(picked)} кадров", "4B")
             break
-        st = read_state(f)
+        # Unchanged scene since the last frame the model actually read: reuse its answer (same image -> same answer).
+        if SKIP_UNCHANGED and ref_img is not None and skip_run < MAX_SKIP_RUN and \
+                frame_change(ref_img, f.image) < CHANGE_THRESHOLD:
+            st = dict(states[-1], t=f.t, reused=True)
+            skip_run += 1
+            reused += 1
+        else:
+            st = read_state(f)
+            ref_img, skip_run = f.image, 0
         states.append(st)
         set_stage(0.05 + 0.7 * (i + 1) / len(picked), f"сканирование кадров {i + 1}/{len(picked)}", frames_done=i + 1)
         sig = (st["people"], st["cashier_present"], st["phone"], st["personal_items"], st["eating"])
@@ -580,7 +610,10 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     set_stage(0.78, "проверка рабочего места", model="Qwen3-VL-4B", phase="rules")
     events = merge_events(detect_events(states, frames, deadline - (2 * JUDGE_SEC if use_judge else 0)))
 
-    stats = {"frames_scanned": len(states), "candidates": len(events), "escalations": 0, "confirmed": 0, "rejected": 0}
+    stats = {"frames_scanned": len(states), "frames_reused": reused, "candidates": len(events),
+             "escalations": 0, "confirmed": 0, "rejected": 0}
+    if reused:
+        note(f"Пропущено неизменных кадров: {reused} из {len(states)} (ответ сканера переиспользован)", "4B")
     note(f"Правила: подозрений {len(events)}", "rules", candidates=len(events))
     if use_judge:
         set_stage(0.85, "проверка подозрительных моментов (8B)", model="Qwen3-VL-8B", phase="judge")

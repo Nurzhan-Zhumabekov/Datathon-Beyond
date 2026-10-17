@@ -45,14 +45,27 @@ def validate(res: dict) -> list[str]:
     return errs
 
 
+def _retry(fn, tries: int = 5):
+    """The jury's client would retry a dropped connection; so do we."""
+    for k in range(tries):
+        try:
+            return fn()
+        except httpx.TransportError:
+            if k == tries - 1:
+                raise
+            time.sleep(2)
+
+
 def run_one(client: httpx.Client, base: str, key: str, path: Path) -> dict:
     t0 = time.time()
-    with path.open("rb") as f:
-        r = client.post(f"{base}/api/v1/analyze", headers={"X-API-Key": key}, files={"file": (path.name, f, "video/quicktime")})
+    def upload():
+        with path.open("rb") as f:
+            return client.post(f"{base}/api/v1/analyze", headers={"X-API-Key": key}, files={"file": (path.name, f, "video/quicktime")})
+    r = _retry(upload)
     r.raise_for_status()
     job_id = r.json()["job_id"]
     while True:
-        r = client.get(f"{base}/api/v1/jobs/{job_id}", headers={"X-API-Key": key})
+        r = _retry(lambda: client.get(f"{base}/api/v1/jobs/{job_id}", headers={"X-API-Key": key}))
         r.raise_for_status()
         res = r.json()
         if res["status"] != "processing":
