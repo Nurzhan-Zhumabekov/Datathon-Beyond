@@ -40,3 +40,20 @@ def test_disk_error_does_not_kill_the_worker(monkeypatch):
     monkeypatch.setattr(jobs, "_save", boom)
     jobs.update_job("enc3", status="failed", error="x")  # must not raise
     assert jobs._jobs["enc3"]["status"] == "failed"
+
+
+def test_job_id_with_path_characters_is_rejected():
+    # The id comes from the URL of unauthenticated routes: backslashes and drive or UNC paths must never reach the filesystem.
+    bs = chr(92)  # a backslash, built here so that no escape sequence can be mangled in the source
+    for bad in (".." + bs + "secret", "../secret", "a/b", bs * 2 + "host" + bs + "share" + bs + "x", "C:" + bs + "Windows", "", "x" * 65):
+        assert jobs.get_job(bad) is None
+        try:
+            jobs._job_path(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"_job_path accepted {bad!r}")
+
+
+def test_normal_job_ids_still_work():
+    assert jobs._job_path("3f2a9c1e0b11").name == "3f2a9c1e0b11.json"
+    assert jobs._job_path("enc_2-x").name == "enc_2-x.json"

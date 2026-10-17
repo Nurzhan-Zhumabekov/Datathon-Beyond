@@ -7,10 +7,12 @@
 #         (scripts\download_gguf.ps1 downloads them once; after that no internet is needed).
 # While this script runs it asks Windows not to go to sleep (like caffeinate on the Mac); this does not change the
 # power settings and ends with the script. Closing the laptop lid still follows your power settings.
+# The script also watches the model server and the service and restarts either one if it exits.
 # The tunnel is OFF by default: the Mac may be serving the fixed ngrok domain, and two machines must not use it
 # at the same time. Set START_NGROK=1 only when the Mac service is stopped.
 # START_CLOUDFLARED=1 opens a Cloudflare quick tunnel instead (tools\cloudflared.exe or cloudflared in PATH): a
-# random https://*.trycloudflare.com address, written to data\public_url.txt; it changes if the tunnel restarts.
+# random https://*.trycloudflare.com address, written to data\public_url.txt; it changes if the tunnel restarts,
+# so a tunnel that exits is only reported, never restarted silently.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 New-Item -ItemType Directory -Force data | Out-Null
@@ -33,18 +35,28 @@ function Wait-Http($url, $seconds) {
     return $false
 }
 
-$procs = @()
-try {
-    $procs += Start-Process -FilePath $llama -PassThru -WindowStyle Hidden `
+function Start-Model {
+    Start-Process -FilePath $llama -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput data\llama.out.log -RedirectStandardError data\llama.err.log `
         -ArgumentList @("-m", $model, "--mmproj", $mmproj, "--host", "127.0.0.1", "--port", "8081",
                         "-ngl", "99", "-c", "8192", "--alias", "qwen3-vl-4b")
+}
+
+function Start-BeyondService {
+    Start-Process -FilePath ".venv\Scripts\python.exe" -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput data\server.log -RedirectStandardError data\server.err.log `
+        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning")
+}
+
+$procs = @()
+try {
+    $modelProc = Start-Model
+    $procs += $modelProc
     if (-not (Wait-Http "http://127.0.0.1:8081/health" 180)) { throw "llama-server did not start, see data\llama.err.log" }
     Write-Host "Model server is up on http://127.0.0.1:8081"
 
-    $procs += Start-Process -FilePath ".venv\Scripts\python.exe" -PassThru -WindowStyle Hidden `
-        -RedirectStandardOutput data\server.log -RedirectStandardError data\server.err.log `
-        -ArgumentList @("-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning")
+    $serviceProc = Start-BeyondService
+    $procs += $serviceProc
     if (-not (Wait-Http "http://127.0.0.1:8000/health" 60)) { throw "service did not start, see data\server.err.log" }
     Write-Host "Service is up on http://127.0.0.1:8000"
     Write-Host "API key: see .env (API_KEY=...)"
@@ -57,12 +69,14 @@ try {
         if ($t) { $t[0].public_url | Set-Content data\public_url.txt; Write-Host "PUBLIC URL: $($t[0].public_url)" }
     }
 
+    $tunnelProc = $null
     if ($env:START_CLOUDFLARED -eq "1") {
         $cf = if (Test-Path "tools\cloudflared.exe") { "tools\cloudflared.exe" } else { "cloudflared" }
         Remove-Item data\cloudflared.err.log, data\cloudflared.out.log -ErrorAction SilentlyContinue
-        $procs += Start-Process -FilePath $cf -PassThru -WindowStyle Hidden `
+        $tunnelProc = Start-Process -FilePath $cf -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput data\cloudflared.out.log -RedirectStandardError data\cloudflared.err.log `
             -ArgumentList @("tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:8000")
+        $procs += $tunnelProc
         $url = ""
         for ($i = 0; $i -lt 60 -and -not $url; $i++) {
             Start-Sleep 1
@@ -72,7 +86,26 @@ try {
         if ($url) { $url | Set-Content data\public_url.txt; Write-Host "PUBLIC URL (cloudflare, changes on restart): $url" }
         else { Write-Host "Cloudflare tunnel did not report an address, see data\cloudflared.err.log" }
     }
-    while ($true) { Start-Sleep 5 }
+
+    $tunnelReported = $false
+    while ($true) {
+        Start-Sleep 5
+        if ($modelProc.HasExited) {
+            Write-Host "$(Get-Date -Format s) llama-server exited, restarting"
+            $modelProc = Start-Model
+            $procs += $modelProc
+            [void](Wait-Http "http://127.0.0.1:8081/health" 180)
+        }
+        if ($serviceProc.HasExited) {
+            Write-Host "$(Get-Date -Format s) service exited, restarting"
+            $serviceProc = Start-BeyondService
+            $procs += $serviceProc
+        }
+        if ($tunnelProc -and $tunnelProc.HasExited -and -not $tunnelReported) {
+            Write-Host "$(Get-Date -Format s) cloudflared exited: the public address no longer works, restart start.ps1 to get a new one"
+            $tunnelReported = $true
+        }
+    }
 }
 finally {
     $procs | ForEach-Object { if ($_ -and -not $_.HasExited) { Stop-Process -Id $_.Id -Force } }

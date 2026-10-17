@@ -7,6 +7,7 @@ Status values follow the jury spec exactly: processing | done | failed
 import json
 import logging
 import queue
+import re
 import threading
 import time
 import traceback
@@ -27,7 +28,14 @@ def _enqueue(job: dict) -> None:
     _queue.put((0 if job["source"] == "api" else 1, job["created_at"], job["job_id"]))
 
 
+_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 def _job_path(job_id: str) -> Path:
+    # job_id comes from the URL of unauthenticated routes: never let it carry path separators (on Windows a
+    # backslash or a UNC path would otherwise escape the jobs folder).
+    if not _ID_RE.fullmatch(job_id):
+        raise ValueError(f"bad job id {job_id!r}")
     return config.JOB_DIR / f"{job_id}.json"
 
 
@@ -64,6 +72,8 @@ def waiting_ui_jobs() -> int:
 
 
 def get_job(job_id: str) -> dict | None:
+    if not _ID_RE.fullmatch(job_id):
+        return None
     with _lock:
         job = _jobs.get(job_id)
         if job is None and _job_path(job_id).exists():
@@ -105,7 +115,10 @@ def _worker(analyze_fn) -> None:
         update_job(job_id, stage="анализ", started_at=started)
         # Jury limit: 5 min per video counted from upload, queue included. Split the time left for this job
         # between it and every job waiting behind it, so the last one in the queue still finishes in time.
-        waiting = _queue.qsize()
+        # Only jury jobs waiting behind this one take its time: website uploads run after every jury video.
+        with _lock:
+            waiting = sum(1 for j in _jobs.values()
+                          if j["status"] == "processing" and j.get("source") == "api" and j.get("stage") == "в очереди")
         left = job["created_at"] + config.JURY_LIMIT_SEC - started
         budget = max(25.0, min(config.TIME_BUDGET_SEC, left / (1 + waiting)))
         if job["source"] != "api":

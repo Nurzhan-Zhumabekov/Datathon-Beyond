@@ -28,6 +28,7 @@ class _Fake(BaseHTTPRequestHandler):
     seen: list[dict] = []
     reply = {"choices": [{"message": {"content": '{"ok": true}'}}]}
     status = 200
+    statuses: list[int] = []  # consumed first, one per request, before falling back to `status`
 
     def log_message(self, *args):  # silence
         pass
@@ -46,13 +47,15 @@ class _Fake(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         type(self).seen.append(body)
-        self._send(type(self).status, type(self).reply)
+        code = type(self).statuses.pop(0) if type(self).statuses else type(self).status
+        self._send(code, type(self).reply if code == 200 else {"error": "boom"})
 
 
 @pytest.fixture
 def server(monkeypatch):
-    _Fake.seen, _Fake.status = [], 200
+    _Fake.seen, _Fake.status, _Fake.statuses = [], 200, []
     _Fake.reply = {"choices": [{"message": {"content": '{"ok": true}'}}]}
+    monkeypatch.setattr(vlm, "_RETRY_PAUSE_SEC", 0)
     srv = HTTPServer(("127.0.0.1", 0), _Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_port}"
@@ -116,4 +119,25 @@ def test_non_local_url_is_refused_and_nothing_is_sent(monkeypatch):
     monkeypatch.setattr(vlm, "_reach", {})
     assert vlm.available("scan") is False
     with pytest.raises(RuntimeError, match="local"):
+        vlm.ask([_img()], "q")
+
+
+def test_one_server_error_is_retried(server):
+    _Fake.statuses = [500]
+    assert vlm.ask([_img()], "q") == '{"ok": true}'
+    assert len(_Fake.seen) == 2
+
+
+def test_two_server_errors_are_reported(server):
+    _Fake.statuses = [500, 503]
+    with pytest.raises(RuntimeError, match="503"):
+        vlm.ask([_img()], "q")
+    assert len(_Fake.seen) == 2
+
+
+def test_refused_connection_is_retried_once_then_reported(monkeypatch):
+    monkeypatch.setattr(config, "VLM_BACKEND", "openai")
+    monkeypatch.setattr(config, "VLM_URL", "http://127.0.0.1:9")  # nothing listens on the discard port
+    monkeypatch.setattr(vlm, "_RETRY_PAUSE_SEC", 0)
+    with pytest.raises(RuntimeError, match="not answering"):
         vlm.ask([_img()], "q")

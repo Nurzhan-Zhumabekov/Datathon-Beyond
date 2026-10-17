@@ -30,6 +30,7 @@ _lock = threading.Lock()
 _models: dict[str, tuple] = {}
 _reach: dict[str, tuple[float, bool]] = {}
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+_RETRY_PAUSE_SEC = 1.5
 
 
 def _openai() -> bool:
@@ -108,7 +109,20 @@ def _ask_openai(images: list[Image.Image], question: str, max_tokens: int, kind:
             "messages": [{"role": "user", "content": parts}],
             "max_tokens": max_tokens, "temperature": 0.0, "stream": False}
     with _lock:
-        r = httpx.post(url + "/v1/chat/completions", json=body, timeout=config.VLM_TIMEOUT_SEC)
+        for attempt in (1, 2):
+            try:
+                r = httpx.post(url + "/v1/chat/completions", json=body, timeout=config.VLM_TIMEOUT_SEC)
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
+                # The model server may be restarting. One retry; a timeout is not retried because that would
+                # double the time spent on the frame.
+                if attempt == 2:
+                    raise RuntimeError(f"the '{kind}' model server is not answering: {e}") from e
+                time.sleep(_RETRY_PAUSE_SEC)
+                continue
+            if r.status_code >= 500 and attempt == 1:
+                time.sleep(_RETRY_PAUSE_SEC)
+                continue
+            break
     if r.status_code != 200:
         raise RuntimeError(f"the '{kind}' model server answered {r.status_code}: {r.text[:200]}")
     content = r.json()["choices"][0]["message"]["content"]

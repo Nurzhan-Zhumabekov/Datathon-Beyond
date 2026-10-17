@@ -241,7 +241,12 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         f_later = min(frames, key=lambda f: abs(f.t - (t_abs + 3.5)))
         note(f"Кассир ушёл с рабочего места около {t_abs:.1f} с → осмотр стола и экрана ноутбука", "rules",
              model="Qwen3-VL-4B + Qwen3-VL-8B", phase="rules")
-        lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
+        try:
+            lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
+        except Exception:  # a model-server hiccup must not turn the whole video into "failed"
+            log.exception("desk check failed at %.1fs; skipping this departure", t_abs)
+            note("Осмотр стола не удался (ошибка модели), пропущен", "rules")
+            continue
         tc = max(0.0, t_abs - DEPARTURE_LEAD_SEC)
         others = [s["people"] or 0 for s in states[max(0, i - 2): i]]
         log.info("departure at %.1fs: %s", t_abs, lb)
@@ -320,14 +325,18 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         if cnt[i - 2] == cnt[i - 1] == 1 and cnt[i] >= 2 and cnt[i + 1] >= 2 and states[i - 1]["cashier_present"]:
             checks += 1
             reads = []
-            for dt in (0.0, 1.5):  # persistence: banknotes must be seen on both reads
-                f_entry = min(frames, key=lambda f: abs(f.t - (ts[i] + dt)))
-                js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80))
-                found = js.get("objects_on_desk") if isinstance(js, dict) else None
-                objs = [str(o).lower() for o in found] if isinstance(found, list) else []
-                reads.append([to_russian(o) for o in objs
-                              if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
-                              and not any(w in o for w in ("machine", "counter", "bag", "sack", "register", "drawer"))])
+            try:
+                for dt in (0.0, 1.5):  # persistence: banknotes must be seen on both reads
+                    f_entry = min(frames, key=lambda f: abs(f.t - (ts[i] + dt)))
+                    js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80))
+                    found = js.get("objects_on_desk") if isinstance(js, dict) else None
+                    objs = [str(o).lower() for o in found] if isinstance(found, list) else []
+                    reads.append([to_russian(o) for o in objs
+                                  if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
+                                  and not any(w in o for w in ("machine", "counter", "bag", "sack", "register", "drawer"))])
+            except Exception:  # a model-server hiccup must not fail the whole video
+                log.exception("entry check failed at %.1fs; skipping it", ts[i])
+                continue
             money = reads[0] if all(reads) else []
             log.info("entry at %.1fs: %s", ts[i], reads)
             if money:
@@ -673,7 +682,12 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
         if not events and time.time() + JUDGE_SEC < deadline:
             had_departure = bool(find_departures(states))
             events = []
-            for ev in second_look(frames, duration, deadline - JUDGE_SEC):
+            try:
+                looked = second_look(frames, duration, deadline - JUDGE_SEC)
+            except Exception:  # keep what the scan found instead of failing the video
+                log.exception("second look failed")
+                looked = []
+            for ev in looked:
                 # The dedicated "cashier left" check already inspected every departure and found nothing.
                 if ev["letter"] == "a" and had_departure:
                     log.info("second look 'walked away' at %.1f ignored: departure check found nothing", ev["t"])
@@ -694,7 +708,13 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             stats["escalations"] += 1
             note(f"Эскалация: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с) → Qwen3-VL-8B", "8B",
                  model="Qwen3-VL-8B", phase="judge", escalations=stats["escalations"], escalating=True)
-            ev["judge"] = judge_event(ev, frames)
+            try:
+                ev["judge"] = judge_event(ev, frames)
+            except Exception:  # the expert is unavailable: keep the finding as the scanner saw it
+                log.exception("judge failed for %s@%.1f; keeping the finding unverified", ev["id"], ev["t"])
+                note("Эксперт недоступен (ошибка модели): событие оставлено без перепроверки", "8B")
+                kept.append(ev)
+                continue
             # Any finding (including the second look) is dropped when the expert does not confirm it
             # and its own plausibility is below REJECT_BELOW.
             weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < REJECT_BELOW
