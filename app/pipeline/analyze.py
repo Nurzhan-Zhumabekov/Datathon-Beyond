@@ -242,7 +242,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         note(f"Кассир ушёл с рабочего места около {t_abs:.1f} с → осмотр стола и экрана ноутбука", "rules",
              model="Qwen3-VL-4B + Qwen3-VL-8B", phase="rules")
         lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
-        tc = max(0.0, t_abs - 3.5)
+        tc = max(0.0, t_abs - DEPARTURE_LEAD_SEC)
         others = [s["people"] or 0 for s in states[max(0, i - 2): i]]
         log.info("departure at %.1fs: %s", t_abs, lb)
         desk = ", ".join(lb["suspicious"]) or "посторонних предметов нет"
@@ -288,7 +288,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
                        "trace": [f"Сканер 4B: кассир ест или пьёт на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
 
     # D. Three or more people in the room (cashier + client + someone else).
-    for a, b in _runs([(s["people"] or 0) >= 3 for s in states], 2):
+    for a, b in _runs([(s["people"] or 0) >= 3 for s in states], CROWD_MIN_FRAMES):
         events.append({"id": "outsider_in_cash_area", "t": ts[a], "conf": 0.6,
                        "detail": f"в помещении одновременно находятся {max(s['people'] or 0 for s in states[a:b + 1])} человека",
                        "evidence_t": [ts[a], ts[min(b, a + 2)]],
@@ -304,7 +304,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         if not (all(c == 1 for c in cnt[a - 2:a]) and all(c == 1 for c in cnt[b + 1:b + 3])):
             continue
         dur = ts[b + 1] - ts[a]
-        if dur <= 9.0:
+        if dur <= VISIT_MAX_SEC:
             tc = ts[a] + (ts[b] - ts[a]) / 2
             events.append({"id": "collection_bag", "t": tc, "conf": 0.5,
                            "detail": f"посетитель входит, передаёт ценности и покидает помещение примерно через {dur:.0f} с; "
@@ -368,6 +368,11 @@ HYPOTHESIS = {
 }
 # For these types the scan already used a zoomed, targeted check; the judge refines but does not veto.
 NO_VETO = {"valuables_left", "unlocked_workstation"}
+# Timeline-rule settings, tuned offline on stored scanner answers (scripts/replay_rules.py, 169 runs / 40 videos):
+DEPARTURE_LEAD_SEC = 3.0   # timecode = this many seconds before the cashier is gone (label offset median −3.0 s)
+CROWD_MIN_FRAMES = 1       # 3+ people on one sampled frame is enough (2 frames found nothing extra, 1 adds a hit, 0 new FP)
+VISIT_MAX_SEC = 6.0        # "came and left at once" visit length (9 s fired on two clean videos, 6 s on one)
+
 # Escalation threshold: a scanner finding at or above this confidence is reported without asking the 8B again
 # (desk/laptop findings already used a zoomed, targeted check). Below it the 8B re-checks and may reject.
 ESCALATE_BELOW = float(os.environ.get("ESCALATE_BELOW", "0.7"))
@@ -577,6 +582,7 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
 
 
 SEC_PER_FRAME = 3.4    # measured on MacBook Air M4 (Qwen3-VL-4B 4-bit, 640 px)
+MIN_FRAMES = 6         # the scanner always reads at least this many frames, whatever the budget
 DEPARTURE_SEC = 25.0   # desk zoom (4B + 8B) + laptop locate + screen read, measured
 ENTRY_SEC = 9.0        # two desk reads when someone walks in
 WINDOW_SEC = 11.0      # one second-look window with the 8B
@@ -598,8 +604,10 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     use_judge = vlm.available("judge")
 
     # ~1 sample per 1.5 s; long videos / busy queue -> sparser sampling to stay within the time budget.
-    reserve = CHECKS_RESERVE + (2 * JUDGE_SEC if use_judge else 0)
-    max_frames = int(max(6, min(30, (budget - reserve) / SEC_PER_FRAME)))
+    # Time kept for the desk / 8B checks, but never more than ~half the budget: with a short budget (several jury
+    # videos queued at once) the scanner must still read frames instead of answering "no violation" blind.
+    reserve = min(CHECKS_RESERVE + (2 * JUDGE_SEC if use_judge else 0), 0.45 * budget)
+    max_frames = int(max(MIN_FRAMES, min(30, (budget - reserve) / SEC_PER_FRAME)))
     step = max(1.5, duration / max_frames)
     picked, next_t = [], 0.0
     for f in frames:
@@ -624,7 +632,7 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
                 picked = picked[:i] + picked[i::2]
                 note(f"Сканер медленнее плана: шаг увеличен, осталось {len(picked) - i} кадров", "4B")
                 set_stage(_rep["frac"], _rep["stage"], frames_total=len(picked))
-        if time.time() > deadline - reserve:
+        if i >= MIN_FRAMES and time.time() > deadline - reserve:
             log.warning("time budget hit after %d/%d frames", i, len(picked))
             note(f"Бюджет времени: просканировано {i} из {len(picked)} кадров", "4B")
             break

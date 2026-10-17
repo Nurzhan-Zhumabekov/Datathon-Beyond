@@ -48,6 +48,8 @@ def test_jury_jobs_run_before_waiting_website_uploads():
     def stub(path, progress, budget):
         order.append((path.stem, budget))
         time.sleep(0.3)
+        if path.stem.startswith("bad"):
+            raise ValueError("cannot decode video")
         return {"verdict": "no_violation", "violations": []}
 
     jobs.start(stub)
@@ -62,8 +64,15 @@ def test_jury_jobs_run_before_waiting_website_uploads():
     mk("ui2", "ui")
     mk("api1", "api")
     mk("api2", "api")
+    bad = mk("bad1", "api")
     deadline = time.time() + 10
-    while len(order) < 4 and time.time() < deadline:
+    while len(order) < 5 and time.time() < deadline:
         time.sleep(0.1)
-    assert [n for n, _ in order] == ["ui1", "api1", "api2", "ui2"]
+    assert [n for n, _ in order] == ["ui1", "api1", "api2", "bad1", "ui2"]
     assert all(b <= config.UI_BUDGET_SEC for n, b in order if n.startswith("ui"))
+    # an exception inside the analysis never leaves a job hanging: it becomes status "failed"
+    while jobs.get_job(bad["job_id"])["status"] == "processing" and time.time() < deadline:
+        time.sleep(0.05)
+    j = jobs.get_job(bad["job_id"])
+    assert j["status"] == "failed" and "decode" in j["error"]
+    assert _public_view(j) == {"job_id": bad["job_id"], "status": "failed", "error": j["error"]}
