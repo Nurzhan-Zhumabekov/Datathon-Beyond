@@ -359,6 +359,21 @@
   @media (prefers-reduced-motion: reduce) { .lg, .row, .thumb { transition: background .3s; transform: none !important; } .lg .glint { display: none; } }
   .foot { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
   .note { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+  /* lg2:start ---------- Liquid glass v2: nearly clear glass, refracting rim (Chromium), specular edge ---------- */
+  .lg { background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.018)), rgba(10,12,16,.16);
+    -webkit-backdrop-filter: blur(5px) saturate(185%) brightness(1.1); backdrop-filter: blur(5px) saturate(185%) brightness(1.1);
+    text-shadow: 0 1px 10px rgba(0,0,0,.28); }
+  .lg:hover { background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.035)), rgba(10,12,16,.12); }
+  .chip.lg { background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.015)), rgba(10,12,16,.16); }
+  .lg.blue { background: linear-gradient(180deg, rgba(110,160,255,.42), rgba(59,123,246,.22)); }
+  .lg.blue:hover { background: linear-gradient(180deg, rgba(130,175,255,.52), rgba(59,123,246,.32)); }
+  /* Chromium only (set by the script): the backdrop is bent along the rim like through a lens, then lightly blurred */
+  html.lg-refract .lg[data-lgf] { -webkit-backdrop-filter: var(--lgf) blur(3px) saturate(185%) brightness(1.08);
+    backdrop-filter: var(--lgf) blur(3px) saturate(185%) brightness(1.08); }
+  @media (prefers-reduced-transparency: reduce) {
+    .lg, .chip.lg, .lg.blue { background: rgba(38,38,38,.92); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html.lg-refract .lg[data-lgf] { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+  /* lg2:end */
 </style>
 </head>
 <body data-view="uploadView">
@@ -968,6 +983,80 @@ document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behav
   });
   document.querySelectorAll('a[href="#top"]').forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
 })();
+// lg2:start Liquid glass v2: a refraction map per glass element. Chromium only; elsewhere the CSS blur fallback stays.
+(function lensGlass() {
+  const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+  if (!brands.some((b) => /Chromium|Google Chrome|Microsoft Edge/.test(b.brand))) return;
+  if (window.matchMedia("(prefers-reduced-transparency: reduce)").matches) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none";
+  const defs = document.createElementNS(NS, "defs");
+  svg.appendChild(defs); document.body.appendChild(svg);
+  document.documentElement.classList.add("lg-refract");
+  let counter = 0;
+
+  // Displacement map of a rounded rectangle. A pixel at depth d inside the border is shifted outward with a smooth
+  // falloff over `bezel` px, so the backdrop looks bent along the rim, like through the edge of a glass lens.
+  function lensMap(w, h, radius, bezel) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), img = g.createImageData(w, h), px = img.data;
+    const hx = w / 2, hy = h / 2, k = Math.min(radius, hx, hy);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = x + 0.5 - hx, dy = y + 0.5 - hy;
+        const qx = Math.abs(dx) - (hx - k), qy = Math.abs(dy) - (hy - k);
+        const ox = Math.max(qx, 0), oy = Math.max(qy, 0), len = Math.hypot(ox, oy);
+        const depth = -(len + Math.min(Math.max(qx, qy), 0) - k);   // distance from the edge, px (< 0 outside the shape)
+        let nx = 0, ny = 0;
+        if (len > 0) { nx = (ox / len) * Math.sign(dx); ny = (oy / len) * Math.sign(dy); }
+        else if (qx > qy) nx = Math.sign(dx); else ny = Math.sign(dy);
+        const t = Math.min(1, Math.max(0, 1 - depth / bezel)), m = t * t * (3 - 2 * t);
+        const i = (y * w + x) * 4;
+        px[i] = 128 + 127 * nx * m; px[i + 1] = 128 + 127 * ny * m; px[i + 2] = 128; px[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL();
+  }
+
+  function build(el) {
+    const r = el.getBoundingClientRect(), w = Math.round(el.offsetWidth || r.width), h = Math.round(el.offsetHeight || r.height);
+    if (w < 12 || h < 12) return;
+    const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || h / 2;
+    const bezel = Math.min(12, h / 2, w / 2), scale = Math.min(16, Math.max(8, h * 0.28));
+    let id = el.dataset.lgf, f;
+    if (!id) {
+      id = "lgf" + counter++; el.dataset.lgf = id;
+      f = document.createElementNS(NS, "filter");
+      f.setAttribute("id", id); f.setAttribute("x", "0"); f.setAttribute("y", "0"); f.setAttribute("width", "1"); f.setAttribute("height", "1");
+      f.setAttribute("color-interpolation-filters", "sRGB");
+      const im = document.createElementNS(NS, "feImage");
+      im.setAttribute("result", "map"); im.setAttribute("preserveAspectRatio", "none");
+      const dm = document.createElementNS(NS, "feDisplacementMap");
+      dm.setAttribute("in", "SourceGraphic"); dm.setAttribute("in2", "map");
+      dm.setAttribute("xChannelSelector", "R"); dm.setAttribute("yChannelSelector", "G");
+      f.append(im, dm); defs.appendChild(f);
+      el.style.setProperty("--lgf", "url(#" + id + ")");
+    } else f = defs.querySelector("#" + id);
+    const im = f.querySelector("feImage"), dm = f.querySelector("feDisplacementMap");
+    im.setAttribute("x", "0"); im.setAttribute("y", "0"); im.setAttribute("width", w); im.setAttribute("height", h);
+    im.setAttribute("href", lensMap(w, h, radius, bezel));
+    dm.setAttribute("scale", scale);
+    el.dataset.lgw = w + "x" + h;
+  }
+
+  const queued = new Set();
+  function schedule(el) {
+    if (queued.has(el)) return;
+    queued.add(el);
+    requestAnimationFrame(() => { queued.delete(el); if ((el.offsetWidth + "x" + el.offsetHeight) !== el.dataset.lgw) build(el); });
+  }
+  const ro = new ResizeObserver((entries) => entries.forEach((e) => schedule(e.target)));
+  document.querySelectorAll(".lg").forEach((el) => { ro.observe(el); schedule(el); });
+})();
+// lg2:end
 </script>
 </body>
 </html>
