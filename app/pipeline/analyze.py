@@ -73,7 +73,7 @@ def read_state(frame: Frame) -> dict:
 
 
 LOCATE_DESK = 'Locate the desk (table top) on which the laptop stands. Output only JSON: {"bbox_2d": [x1, y1, x2, y2]}'
-DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List only the objects you can clearly see lying on the desk surface. Do not guess; if the desk is empty apart from the equipment, say so.
+DESK_PROMPT = """This is a zoomed view of a bank cashier's desk. List only the objects you can clearly see lying on the desk surface, including small items such as banknotes, money bundles, envelopes, bags or cups. Do not guess; if the desk is empty apart from the equipment, say so.
 Answer ONLY with JSON: {"objects_on_desk": ["..."]}"""
 
 
@@ -133,6 +133,25 @@ def check_left_behind(frame: Frame, extra: Frame | None = None) -> dict:
     return {"objects": objs, "suspicious": suspicious, "screen_bright": bool(screen and "bright" in screen), "desk": desk}
 
 
+# ---------------- live status for the dashboard ----------------
+
+_rep = {"fn": None, "frac": 0.0, "stage": "", "live": {}}
+
+
+def set_stage(frac: float, stage: str, **live) -> None:
+    _rep.update(frac=frac, stage=stage)
+    _rep["live"].update(live)
+    if _rep["fn"]:
+        _rep["fn"](frac, stage, **_rep["live"])
+
+
+def note(text: str, src: str, **live) -> None:
+    """One line of the analysis log shown live (src: 4B / rules / 8B)."""
+    _rep["live"].update(live)
+    if _rep["fn"]:
+        _rep["fn"](_rep["frac"], _rep["stage"], log_line=text, src=src, **_rep["live"])
+
+
 # ---------------- rules over the timeline ----------------
 
 def _smooth(vals: list[bool]) -> list[bool]:
@@ -179,29 +198,39 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             break
         f_after = min(frames, key=lambda f: abs(f.t - (t_abs + 1.5)))
         f_later = min(frames, key=lambda f: abs(f.t - (t_abs + 3.5)))
+        note(f"Кассир ушёл с рабочего места около {t_abs:.1f} с → осмотр стола и экрана ноутбука", "rules",
+             model="Qwen3-VL-4B + Qwen3-VL-8B", phase="rules")
         lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
         tc = max(0.0, t_abs - 3.5)
         others = [s["people"] or 0 for s in states[max(0, i - 2): i]]
         log.info("departure at %.1fs: %s", t_abs, lb)
+        desk = ", ".join(lb["suspicious"]) or "посторонних предметов нет"
+        screen = "открытая рабочая программа" if lb["screen_bright"] else "экран блокировки / выключен"
+        note(f"Стол: {desk}; экран: {screen}", "rules")
+        base_trace = [f"Сканер 4B: кассир на месте до {ts[i - 1]:.1f} с, с {t_abs:.1f} с отсутствует (2+ кадра подряд)",
+                      f"Стол крупным планом (4B + эксперт 8B): {desk}",
+                      f"Экран ноутбука, увеличение ×4 (4B): {screen}"]
         if lb["suspicious"]:
             events.append({"id": "valuables_left", "t": tc, "conf": 0.75,
                            "detail": "кассир покидает рабочее место; на столе остаются: " + ", ".join(lb["suspicious"][:4]),
-                           "evidence_t": [tc, f_after.t]})
+                           "evidence_t": [tc, f_after.t], "trace": list(base_trace)})
         if lb["screen_bright"]:
             events.append({"id": "unlocked_workstation", "t": tc, "conf": 0.7,
                            "detail": "кассир покидает рабочее место; экран компьютера остаётся с открытой рабочей программой",
-                           "evidence_t": [tc, f_after.t]})
+                           "evidence_t": [tc, f_after.t], "trace": list(base_trace)})
         if others and min(others) >= 2:
             events.append({"id": "left_during_service", "t": tc, "conf": 0.55,
                            "detail": "кассир уходит с рабочего места, когда в помещении находится посетитель",
-                           "evidence_t": [tc, f_after.t]})
+                           "evidence_t": [tc, f_after.t],
+                           "trace": base_trace[:1] + [f"Сканер 4B: перед уходом в помещении {min(others)} человека"]})
 
     # B. Phone in the cashier's hands (2+ consecutive samples). Only when the cashier is alone in the room:
     #    with a client present the model cannot reliably tell whose phone it is (clients may use phones).
     for a, b in _runs(_smooth([s["phone"] and (s["people"] or 0) <= 1 for s in states]), 2):
         events.append({"id": "phone_use", "t": ts[a], "conf": 0.6,
                        "detail": "кассир держит в руках мобильный телефон",
-                       "evidence_t": [ts[a], ts[min(b, a + 2)]]})
+                       "evidence_t": [ts[a], ts[min(b, a + 2)]],
+                       "trace": [f"Сканер 4B: телефон в руках кассира на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с), кассир в помещении один"]})
 
     # C. Personal items / eating — only while the cashier is alone (with visitors the model confuses
     #    their bags and cups with the cashier's), 3+ consecutive samples for items, 2+ for eating.
@@ -209,17 +238,20 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
     for a, b in _runs(_smooth([s["personal_items"] and al for s, al in zip(states, alone)]), 3):
         events.append({"id": "personal_items", "t": ts[a], "conf": 0.55,
                        "detail": "на рабочем месте кассира находятся личные вещи (сумка или верхняя одежда)",
-                       "evidence_t": [ts[a], ts[min(b, a + 2)]]})
+                       "evidence_t": [ts[a], ts[min(b, a + 2)]],
+                       "trace": [f"Сканер 4B: сумка/верхняя одежда на рабочем месте на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
     for a, b in _runs(_smooth([s["eating"] and al for s, al in zip(states, alone)]), 2):
         events.append({"id": "personal_items", "t": ts[a], "conf": 0.6,
                        "detail": "кассир ест или пьёт на рабочем месте во время работы с ценностями",
-                       "evidence_t": [ts[a], ts[min(b, a + 2)]]})
+                       "evidence_t": [ts[a], ts[min(b, a + 2)]],
+                       "trace": [f"Сканер 4B: кассир ест или пьёт на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
 
     # D. Three or more people in the room (cashier + client + someone else).
     for a, b in _runs([(s["people"] or 0) >= 3 for s in states], 2):
         events.append({"id": "outsider_in_cash_area", "t": ts[a], "conf": 0.6,
                        "detail": f"в помещении одновременно находятся {max(s['people'] or 0 for s in states[a:b + 1])} человека",
-                       "evidence_t": [ts[a], ts[min(b, a + 2)]]})
+                       "evidence_t": [ts[a], ts[min(b, a + 2)]],
+                       "trace": [f"Сканер 4B: 3 и более человек в помещении на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
 
     # E. A visitor comes in and leaves within a few seconds (e.g. a collector hands over a bag and leaves
     #    before it is checked in his presence). Needs a stable "cashier alone" period before and after.
@@ -236,7 +268,8 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             events.append({"id": "collection_bag", "t": tc, "conf": 0.5,
                            "detail": f"посетитель входит, передаёт ценности и покидает помещение примерно через {dur:.0f} с; "
                                      "проверка целостности и пломбы в его присутствии на видео не наблюдается",
-                           "evidence_t": [tc, ts[b]]})
+                           "evidence_t": [tc, ts[b]],
+                           "trace": [f"Сканер 4B: посетитель в помещении ~{dur:.0f} с ({ts[a]:.1f}–{ts[b + 1]:.1f} с); до и после кассир один"]})
 
     # F. Someone enters while banknotes lie openly on the desk (stable count change 1 -> 2+), at most 3 checks.
     checks = 0
@@ -259,7 +292,9 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             if money:
                 events.append({"id": "cash_exposed", "t": ts[i], "conf": 0.5,
                                "detail": "в помещение входит посетитель, при этом на столе открыто лежат: " + ", ".join(money[:3]),
-                               "evidence_t": [ts[i], ts[min(i + 1, len(ts) - 1)]]})
+                               "evidence_t": [ts[i], ts[min(i + 1, len(ts) - 1)]],
+                               "trace": [f"Сканер 4B: вход посетителя в {ts[i]:.1f} с (число людей 1 → {cnt[i]})",
+                                         f"Стол (4B), две проверки подряд: {', '.join(money[:3])}"]})
     return events
 
 
@@ -360,6 +395,12 @@ def judge_event(ev: dict, frames: list[Frame]) -> dict:
                 max_tokens=40, kind="judge")
     verdict["box"] = {"t": round(f0.t, 2), "bbox": vlm.parse_bbox(g), "label": key}
     log.info("judge %s@%.1f: %s", ev["id"], ev["t"], {k: v for k, v in verdict.items() if k != "box"})
+    word = "подтверждено" if verdict["confirmed"] else "не подтверждено"
+    line = f"Эскалация → эксперт 8B (3 кадра вокруг {ev['t']:.1f} с): {word}, уверенность {round(plaus * 100)}%"
+    if verdict["seen"]:
+        line += f". Видно: {verdict['seen']}"
+    ev.setdefault("trace", []).append(line)
+    note(line, "8B")
     return verdict
 
 
@@ -379,6 +420,10 @@ def second_look(frames: list[Frame], duration: float, deadline: float) -> list[d
         js = vlm.parse_json(raw)
         js = js if isinstance(js, dict) else {}
         log.info("window %.1f-%.1fs: %s", w * span, (w + 1) * span, js)
+        flag = _as_bool(js.get("v"))
+        note(f"Эксперт 8B, окно {w * span:.0f}–{(w + 1) * span:.0f} с: "
+             f"{'подозрение (' + str(js.get('type')) + ', ' + str(js.get('p')) + '%)' if flag else 'нарушений не видно'}", "8B",
+             model="Qwen3-VL-8B", phase="judge")
         typ = SECOND_LOOK_TYPES.get(str(js.get("type", "")).strip().lower()[:1])
         try:
             plaus = float(js.get("p", 0)) / 100
@@ -389,6 +434,8 @@ def second_look(frames: list[Frame], duration: float, deadline: float) -> list[d
             t = picks[k].t
             found.append({"id": typ, "t": t, "conf": 0.6 * plaus, "detail": "на кадрах зафиксировано действие, требующее проверки",
                           "evidence_t": [t, picks[min(2, k + 1)].t], "from_second_look": True,
+                          "trace": [f"Сканер 4B и правила ничего не нашли → эксперт 8B просмотрел окно {w * span:.0f}–{(w + 1) * span:.0f} с: "
+                                    f"признак «{js.get('type')}», уверенность {round(plaus * 100)}%"],
                           "letter": str(js.get("type", "")).strip().lower()[:1]})
     return found
 
@@ -474,6 +521,7 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
         "seen": seen,
         "why": spec["explain"],
         "boxes": [{"t": box["t"], "bbox": box["bbox"], "label": box.get("label", "")}] if box.get("bbox") else [],
+        "reasoning": list(ev.get("trace", [])) + [f"Правило: «{spec['name']}» → основание: {basis}"],
         "escalated": bool(j),
         "judge_confirmed": bool(j and j.get("confirmed")),
         "regulation": ({"document": doc["short"], "clause": spec["clause"], "url": doc["url"]} if doc
@@ -490,8 +538,9 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     t0 = time.time()
     budget = budget or config.TIME_BUDGET_SEC
     deadline = t0 + budget
+    _rep.update(fn=progress, frac=0.0, stage="", live={})
     info = probe(path)
-    progress(0.02, "чтение видео")
+    set_stage(0.02, "чтение видео", model="—", phase="upload", escalations=0, escalating=False)
     frames = sample_frames(path, fps=2.0)
     if not frames:
         raise ValueError("no frames decoded")
@@ -509,20 +558,34 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             next_t = f.t + step
 
     vlm.load("scan")
-    states = []
+    note(f"Видео {duration:.0f} с → сканер Qwen3-VL-4B: {len(picked)} кадров, шаг {step:.1f} с", "4B",
+         model="Qwen3-VL-4B", phase="scan", frames_total=len(picked), frames_done=0)
+    states, prev = [], None
     for i, f in enumerate(picked):
         if time.time() > deadline - reserve:
             log.warning("time budget hit after %d/%d frames", i, len(picked))
+            note(f"Бюджет времени: просканировано {i} из {len(picked)} кадров", "4B")
             break
-        states.append(read_state(f))
-        progress(0.05 + 0.7 * (i + 1) / len(picked), f"сканирование кадров {i + 1}/{len(picked)}")
+        st = read_state(f)
+        states.append(st)
+        set_stage(0.05 + 0.7 * (i + 1) / len(picked), f"сканирование кадров {i + 1}/{len(picked)}", frames_done=i + 1)
+        sig = (st["people"], st["cashier_present"], st["phone"], st["personal_items"], st["eating"])
+        if sig != prev:  # log only changes of the scene, not every frame
+            extra = [w for w, flag in (("телефон", st["phone"]), ("личные вещи", st["personal_items"]),
+                                       ("еда/напиток", st["eating"])) if flag]
+            note(f"{f.t:.1f} с: людей {st['people'] if st['people'] is not None else '?'}, кассир "
+                 f"{'на месте' if st['cashier_present'] else 'отсутствует'}" + (", " + ", ".join(extra) if extra else ""), "4B")
+            prev = sig
 
-    progress(0.78, "проверка рабочего места")
+    set_stage(0.78, "проверка рабочего места", model="Qwen3-VL-4B", phase="rules")
     events = merge_events(detect_events(states, frames, deadline - (2 * JUDGE_SEC if use_judge else 0)))
 
     stats = {"frames_scanned": len(states), "candidates": len(events), "escalations": 0, "confirmed": 0, "rejected": 0}
+    note(f"Правила: подозрений {len(events)}", "rules", candidates=len(events))
     if use_judge:
-        progress(0.85, "проверка подозрительных моментов (8B)")
+        set_stage(0.85, "проверка подозрительных моментов (8B)", model="Qwen3-VL-8B", phase="judge")
+        if not events:
+            note("Подозрений нет → эксперт 8B делает «второй взгляд» по окнам ~6 с", "8B")
         if not events and time.time() + JUDGE_SEC < deadline:
             had_departure = bool(find_departures(states))
             events = []
@@ -536,16 +599,18 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
         kept = []
         for ev in sorted(events, key=lambda e: -e["conf"]):
             if time.time() + JUDGE_SEC > deadline:
-                if not ev.get("from_second_look"):
-                    kept.append(ev)  # no time left to judge: keep the scan result; unconfirmed second-look hints are dropped
+                kept.append(ev)  # no time left to re-check: keep the finding as is
                 continue
-            ev["judge"] = judge_event(ev, frames)
             stats["escalations"] += 1
-            # Second-look findings need an explicit confirmation by the judge (a second, independent look).
-            weak = (not ev["judge"]["confirmed"] or ev["judge"]["plausibility"] < 0.6) if ev.get("from_second_look") \
-                else (not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35)
-            if ev["id"] not in NO_VETO and weak:
+            note(f"Эскалация: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с) → Qwen3-VL-8B", "8B",
+                 model="Qwen3-VL-8B", phase="judge", escalations=stats["escalations"], escalating=True)
+            ev["judge"] = judge_event(ev, frames)
+            # Second-look findings already come from the expert model; the re-check adds the description and box
+            # but does not veto them (vetoing lost real violations in testing).
+            weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < 0.35
+            if ev["id"] not in NO_VETO and not ev.get("from_second_look") and weak:
                 log.info("judge rejected %s@%.1f", ev["id"], ev["t"])
+                note(f"Эксперт 8B отклонил: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с)", "8B")
                 stats["rejected"] += 1
                 continue
             stats["confirmed"] += int(ev["judge"]["confirmed"])
@@ -553,7 +618,8 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
         events = sorted(kept, key=lambda e: e["t"])
 
     violations = [build_violation(e, frames) for e in events]
-    progress(0.98, "формирование отчёта")
+    set_stage(0.98, "формирование отчёта", model="—", phase="report", escalating=False)
+    note(f"Итог: {'нарушений ' + str(len(violations)) if violations else 'нарушений не найдено'}", "rules")
     summary = (f"Проанализировано {len(states)} кадров из {duration:.0f} с видео"
                f"{'; подозрительные моменты перепроверены моделью Qwen3-VL-8B' if use_judge else ''}.")
     return {

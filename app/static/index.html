@@ -153,6 +153,26 @@
   #chron tr.bad td { color: var(--bad); font-weight: 600; }
   #chron td.t { width: 130px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
 
+  .nowmodel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; border-radius: 12px; padding: 11px 14px; margin-bottom: 12px;
+    background: var(--accent-2); color: var(--accent); border: 1px solid transparent; }
+  .nowmodel .l2 { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; opacity: .8; }
+  .nowmodel b { font-size: 15px; }
+  .nowmodel .esc-tag { display: none; font-size: 11.5px; font-weight: 700; background: var(--violet); color: #fff; border-radius: 6px; padding: 2px 8px; letter-spacing: .4px; }
+  .nowmodel.esc { background: var(--violet-bg); color: var(--violet); border-color: var(--violet); animation: escPulse 1.4s ease-in-out infinite; }
+  .nowmodel.esc .esc-tag { display: inline-block; }
+  @keyframes escPulse { 50% { box-shadow: 0 0 0 5px var(--violet-bg); } }
+  .counters { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .counters b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .log { max-height: 230px; overflow-y: auto; border-top: 1px solid var(--line); margin-top: 14px; padding-top: 8px; font-size: 12.5px; }
+  .log div { padding: 3px 0; display: flex; gap: 8px; align-items: baseline; }
+  .log .ts { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 38px; }
+  .src { font-size: 10.5px; font-weight: 700; border-radius: 5px; padding: 0 6px; white-space: nowrap; }
+  .src.s4B { background: var(--accent-2); color: var(--accent); }
+  .src.s8B { background: var(--violet-bg); color: var(--violet); }
+  .src.srules { background: var(--chip); color: var(--muted); }
+  .reason { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  .reason li { margin: 3px 0; }
+  .reason li.r8 { color: var(--violet); } .reason li.r4 { color: var(--accent); } .reason li.rr { color: var(--muted); }
   #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.86); display: none; align-items: center; justify-content: center; z-index: 20; cursor: zoom-out; }
   #zoom img { max-width: 95vw; max-height: 95vh; border-radius: 8px; }
   .foot { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
@@ -225,7 +245,7 @@
       <div class="grid2">
         <div class="panel">
           <h3 id="progName">Видео</h3>
-          <div class="player" style="max-width:300px"><video id="previewVid" muted playsinline></video></div>
+          <div class="player hidden" id="previewBox" style="max-width:300px"><video id="previewVid" muted playsinline></video></div>
           <div style="margin-top:14px" class="bar"><div id="barFill"></div></div>
           <div style="display:flex;justify-content:space-between;gap:10px;margin-top:6px" class="small muted">
             <span id="stageText">Загрузка…</span><span id="elapsed">0 с</span>
@@ -233,7 +253,10 @@
         </div>
         <div class="panel">
           <h3>Ход анализа</h3>
+          <div class="nowmodel" id="nowModel"><span class="l2">Сейчас работает</span><b id="nmName">—</b><span class="esc-tag">ЭСКАЛАЦИЯ → 8B</span></div>
+          <div class="counters"><span>Кадры: <b id="cFrames">—</b></span><span>Подозрений: <b id="cCand">—</b></span><span>Эскалаций в 8B: <b id="cEsc">0</b></span></div>
           <ol class="pipe" id="pipeLive"></ol>
+          <div class="log" id="liveLog"></div>
         </div>
       </div>
     </section>
@@ -274,6 +297,10 @@
           <span><i style="background:var(--bad)"></i>Нарушение</span>
         </div>
         <table class="list" id="chron" style="margin-top:10px"></table>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3>Журнал анализа</h3>
+        <div class="log" id="resLog" style="max-height:320px;border-top:0;margin-top:0;padding-top:0"></div>
       </div>
       <div class="foot">Результат — подсказка для проверяющего, а не окончательное заключение. Сервис не делает выводов о том,
         чего не видно на видео (проводки, сверка, подлинность купюр, намерения людей). <span id="summary"></span></div>
@@ -391,7 +418,7 @@ function start(file) {
   currentJob = { name: file.name };
   $("progName").textContent = file.name; $("title").textContent = file.name;
   const url = URL.createObjectURL(file);
-  $("previewVid").src = url; $("player").src = url;
+  $("previewVid").src = url; $("player").src = url; $("previewBox").classList.remove("hidden");
   setProgress("upload", 0, "Загрузка видео…");
   const fd = new FormData(); fd.append("file", file);
   const xhr = new XMLHttpRequest();
@@ -412,6 +439,22 @@ function openJob(id) {
   setProgress("upload", 0, "Загрузка результата…"); poll(id);
 }
 
+const SRC = { "4B": "Сканер 4B", "8B": "Эксперт 8B", rules: "Правила" };
+function drawLog(el, lines) {
+  el.innerHTML = (lines || []).map((l) => `<div><span class="ts">${(+l.t || 0).toFixed(0)} с</span><span class="src s${esc(l.src)}">${esc(SRC[l.src] || l.src)}</span><span>${esc(l.text)}</span></div>`).join("")
+    || '<div class="muted">Журнал появится, как только начнётся анализ.</div>';
+  el.scrollTop = el.scrollHeight;
+}
+function drawLive(live) {
+  live = live || {};
+  const m = live.model && live.model !== "—" ? live.model : "ожидание";
+  $("nmName").textContent = m;
+  $("nowModel").classList.toggle("esc", !!live.escalating || /8B/.test(m) && !/4B/.test(m));
+  $("cFrames").textContent = live.frames_total ? `${live.frames_done || 0} / ${live.frames_total}` : "—";
+  $("cCand").textContent = live.candidates ?? "—";
+  $("cEsc").textContent = live.escalations ?? 0;
+}
+
 async function poll(id) {
   let j;
   try {
@@ -421,7 +464,10 @@ async function poll(id) {
   } catch (e) { return setTimeout(() => poll(id), 2500); }
   if (j.status === "processing") {
     const st = j.stage || "";
-    const key = /8B|подозр|эскал/i.test(st) ? "judge" : /рабочего места|правил/i.test(st) ? "rules" : /отч/i.test(st) ? "report" : /очеред/i.test(st) ? "upload" : "scan";
+    const phase = j.live?.phase;
+    const key = ["upload", "scan", "rules", "judge", "report"].includes(phase) ? phase
+      : /8B|подозр|эскал/i.test(st) ? "judge" : /рабочего места|правил/i.test(st) ? "rules" : /отч/i.test(st) ? "report" : /очеред/i.test(st) ? "upload" : "scan";
+    drawLive(j.live); drawLog($("liveLog"), j.log);
     const q = j.queue_position > 0 ? ` · перед вами в очереди: ${j.queue_position}` : "";
     setProgress(key, 0.08 + 0.92 * (j.progress || 0), (st || "Анализ") + q);
     return setTimeout(() => poll(id), 1200);
@@ -452,6 +498,7 @@ function render(j) {
     ? `Сканер 4B: <b>${pl.frames_scanned}</b> кадров → правила: <b>${pl.candidates}</b> подозрений → эксперт 8B: <b>${pl.escalations}</b> проверено, <b>${pl.rejected}</b> отклонено → <b>${vs.length}</b> в отчёте`
     : esc(j.summary || "—");
   $("summary").textContent = j.summary || "";
+  drawLog($("resLog"), j.log);
 
   // violation cards
   const list = $("violations"); list.innerHTML = "";
@@ -468,6 +515,8 @@ function render(j) {
       <div class="plaus" title="Уверенность модели — не откалиброванная вероятность">Уверенность модели <b style="color:${col}">${pct(x.confidence)} · ${lv}</b><div class="pb"><div style="width:${pct(x.confidence)};background:${col}"></div></div></div>
       <div class="lbl">Что видно на видео</div><div>${esc(x.seen || x.description)}</div>
       ${x.why ? `<div class="lbl">Почему это может быть нарушением</div><div>${esc(x.why)}</div>` : ""}
+      ${(x.reasoning || []).length ? `<div class="lbl">Ход рассуждения</div><ol class="reason">${x.reasoning.map((r) =>
+        `<li class="${/8B|Эскалац|эксперт/i.test(r) ? "r8" : /^Правило/.test(r) ? "rr" : "r4"}">${esc(r)}</li>`).join("")}</ol>` : ""}
       <div class="lbl">Кадры‑доказательства</div><div class="frames">${frames}</div>${reg}`;
     el.onclick = (e) => {
       if (e.target.tagName === "A") return;

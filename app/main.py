@@ -95,8 +95,8 @@ def ui_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     view = _public_view(job)
-    view.update(progress=job.get("progress", 0), stage=job.get("stage", ""),
-                queue_position=jobs.queue_position(job_id), elapsed_sec=job.get("elapsed_sec"))
+    view.update(progress=job.get("progress", 0), stage=job.get("stage", ""), live=job.get("live", {}),
+                log=job.get("log", []), queue_position=jobs.queue_position(job_id), elapsed_sec=job.get("elapsed_sec"))
     if job["status"] == "done":
         view["violations"] = job["violations"]  # UI also gets rule/regulation fields
         view["summary"] = job.get("summary", "")

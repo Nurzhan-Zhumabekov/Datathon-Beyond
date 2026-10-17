@@ -94,8 +94,14 @@ def _worker(analyze_fn) -> None:
         left = job["created_at"] + config.JURY_LIMIT_SEC - started
         budget = max(25.0, min(config.TIME_BUDGET_SEC, left / (1 + waiting)))
 
-        def progress(frac: float, stage: str) -> None:
-            update_job(job_id, progress=round(float(frac), 3), stage=stage)
+        log_lines: list[dict] = []
+
+        def progress(frac: float, stage: str, log_line: str | None = None, src: str = "", **live) -> None:
+            """Live status for the dashboard: stage, active model, counters and a short analysis log."""
+            if log_line:
+                log_lines.append({"t": round(time.time() - started, 1), "src": src, "text": log_line})
+                del log_lines[:-40]
+            update_job(job_id, progress=round(float(frac), 3), stage=stage, live=live, log=list(log_lines))
 
         try:
             result = analyze_fn(Path(job["video_path"]), progress, budget)
