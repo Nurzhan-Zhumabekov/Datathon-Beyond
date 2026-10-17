@@ -22,3 +22,6 @@ catboost_info/
 # Ключи
 .env
 *.key
+
+# Background video of the landing page (the only video kept in git)
+!app/static/bg.mp4

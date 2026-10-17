@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import config, jobs
 from .pipeline import analyze
@@ -13,6 +14,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 app = FastAPI(title="ForteBank cash-desk violation detector", docs_url=None, redoc_url=None)
 
 STATIC = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
 ALLOWED_EXT = {".mov", ".mp4", ".m4v", ".avi", ".mkv"}
 
 
