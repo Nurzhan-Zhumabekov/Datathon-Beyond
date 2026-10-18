@@ -287,7 +287,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
                        "evidence_t": [ts[a], ts[min(b, a + 2)]],
                        "trace": [f"Сканер 4B: сумка/верхняя одежда на рабочем месте на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
     for a, b in _runs(_smooth([s["eating"] and al for s, al in zip(states, alone)]), 2):
-        events.append({"id": "personal_items", "t": ts[a], "conf": 0.6,
+        events.append({"id": "eating_at_desk", "t": ts[a], "conf": 0.6,
                        "detail": "кассир ест или пьёт на рабочем месте во время работы с ценностями",
                        "evidence_t": [ts[a], ts[min(b, a + 2)]],
                        "trace": [f"Сканер 4B: кассир ест или пьёт на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
@@ -368,7 +368,8 @@ HYPOTHESIS = {
     "unlocked_workstation": "The cashier walks away and the laptop screen stays on with an open work program (not a lock screen).",
     "left_during_service": "The cashier walks away from the desk while a client is still in the room.",
     "phone_use": "The cashier (bank employee at the desk) holds or uses a mobile phone.",
-    "personal_items": "The cashier has personal items (bag, coat) at the workplace, or eats or drinks while working with cash.",
+    "personal_items": "The cashier has personal items (bag, coat) at the workplace.",
+    "eating_at_desk": "The cashier eats or drinks at the workplace while working with cash.",
     "outsider_in_cash_area": "An extra person, who is neither the cashier nor the client being served, is in the cash room near the cashier's desk.",
     "collection_bag": "A person brings a bag of valuables and leaves within seconds, before the cashier checks the bag and its seal in his presence.",
     "cash_exposed": "When a visitor comes in, banknotes are lying openly on the desk.",
