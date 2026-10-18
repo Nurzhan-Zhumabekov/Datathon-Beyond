@@ -24,6 +24,10 @@ _lock = threading.Lock()
 _queue: "queue.PriorityQueue[tuple[int, float, str]]" = queue.PriorityQueue()
 
 
+class UIQueueFull(Exception):
+    """One UI upload is already waiting; jury API submissions are unaffected."""
+
+
 def _enqueue(job: dict) -> None:
     _queue.put((0 if job["source"] == "api" else 1, job["created_at"], job["job_id"]))
 
@@ -59,9 +63,15 @@ def create_job(video_path: Path, source: str, filename: str = "") -> dict:
         "stage": "в очереди",
     }
     with _lock:
-        _jobs[job_id] = job
+        # The route's preflight count is only an optimisation. Check and insert under the same lock,
+        # otherwise parallel uploads can all pass that count and fill the single-worker queue.
+        if source == "ui" and any(j["status"] == "processing" and j.get("source") == "ui"
+                                  and j.get("stage") == "в очереди" for j in _jobs.values()):
+            raise UIQueueFull
         _save(job)
-    _enqueue(job)
+        # A failed disk write must not leave an in-memory job that will never enter the queue.
+        _jobs[job_id] = job
+        _enqueue(job)
     return job
 
 

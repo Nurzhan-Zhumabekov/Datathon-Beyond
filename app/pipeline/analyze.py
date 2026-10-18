@@ -595,6 +595,8 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
 # scripts/bench_vlm.py and override through the environment.
 SEC_PER_FRAME = float(os.environ.get("SEC_PER_FRAME", "3.4"))    # Qwen3-VL-4B, 640 px
 MIN_FRAMES = 6         # the scanner always reads at least this many frames, whatever the budget
+MAX_FRAMES = int(os.environ.get("MAX_FRAMES", "30"))          # upper bound on frames per video
+STEP_MIN_SEC = float(os.environ.get("STEP_MIN_SEC", "1.5"))    # densest sampling: one frame per this many seconds
 DEPARTURE_SEC = float(os.environ.get("DEPARTURE_SEC", "25.0"))   # desk zoom (4B + 8B) + laptop locate + screen read
 ENTRY_SEC = float(os.environ.get("ENTRY_SEC", "9.0"))            # two desk reads when someone walks in
 WINDOW_SEC = float(os.environ.get("WINDOW_SEC", "11.0"))         # one second-look window with the 8B
@@ -619,8 +621,8 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     # Time kept for the desk / 8B checks, but never more than ~half the budget: with a short budget (several jury
     # videos queued at once) the scanner must still read frames instead of answering "no violation" blind.
     reserve = min(CHECKS_RESERVE + (2 * JUDGE_SEC if use_judge else 0), 0.45 * budget)
-    max_frames = int(max(MIN_FRAMES, min(30, (budget - reserve) / SEC_PER_FRAME)))
-    step = max(1.5, duration / max_frames)
+    max_frames = int(max(MIN_FRAMES, min(MAX_FRAMES, (budget - reserve) / SEC_PER_FRAME)))
+    step = max(STEP_MIN_SEC, duration / max_frames)
     picked, next_t = [], 0.0
     for f in frames:
         if f.t + 1e-6 >= next_t:

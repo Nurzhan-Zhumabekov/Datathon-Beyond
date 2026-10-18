@@ -36,18 +36,31 @@ def _store_upload(file: UploadFile) -> Path:
         raise HTTPException(status_code=400, detail=f"unsupported file type {ext}")
     dest = config.UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
     limit, size = int(config.MAX_UPLOAD_MB * 1024 * 1024), 0
-    with dest.open("wb") as f:
-        while chunk := file.file.read(1024 * 1024):
-            size += len(chunk)
-            if size > limit:
-                f.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=f"file larger than {config.MAX_UPLOAD_MB:.0f} MB")
-            f.write(chunk)
-    if dest.stat().st_size == 0:
-        dest.unlink()
-        raise HTTPException(status_code=400, detail="empty file")
+    try:
+        with dest.open("wb") as f:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status_code=413, detail=f"file larger than {config.MAX_UPLOAD_MB:.0f} MB")
+                f.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="empty file")
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
     return dest
+
+
+def _submit_upload(file: UploadFile, source: str) -> dict:
+    path = _store_upload(file)
+    try:
+        return jobs.create_job(path, source=source, filename=file.filename)
+    except jobs.UIQueueFull:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=429, detail="Очередь занята, попробуйте через минуту") from None
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
 
 
 def _public_view(job: dict) -> dict:
@@ -69,8 +82,7 @@ def _public_view(job: dict) -> dict:
 @app.post("/api/v1/analyze")
 def api_analyze(file: UploadFile = File(None), x_api_key: str | None = Header(None)):
     _check_key(x_api_key)
-    path = _store_upload(file)
-    job = jobs.create_job(path, source="api", filename=file.filename)
+    job = _submit_upload(file, source="api")
     return {"job_id": job["job_id"], "status": "processing"}
 
 
@@ -95,8 +107,7 @@ def ui_analyze(file: UploadFile = File(None)):
     # The website has no key: allow at most one waiting upload so nobody can clog the queue ahead of the jury.
     if jobs.waiting_ui_jobs() >= 1:
         raise HTTPException(status_code=429, detail="Очередь занята, попробуйте через минуту")
-    path = _store_upload(file)
-    job = jobs.create_job(path, source="ui", filename=file.filename)
+    job = _submit_upload(file, source="ui")
     return {"job_id": job["job_id"], "status": "processing"}
 
 
