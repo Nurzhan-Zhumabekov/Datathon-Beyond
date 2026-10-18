@@ -241,12 +241,18 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         f_later = min(frames, key=lambda f: abs(f.t - (t_abs + 3.5)))
         note(f"Кассир ушёл с рабочего места около {t_abs:.1f} с → осмотр стола и экрана ноутбука", "rules",
              model="Qwen3-VL-4B + Qwen3-VL-8B", phase="rules")
-        lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
+        try:
+            lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
+        except Exception:  # a model-server hiccup must not turn the whole video into "failed"
+            log.exception("desk check failed at %.1fs; skipping this departure", t_abs)
+            note("Осмотр стола не удался (ошибка модели): события по столу и экрану не выводятся", "rules")
+            # The departure itself is still known from the timeline: keep deriving left_during_service below.
+            lb = {"suspicious": [], "screen_bright": False, "failed": True}
         tc = max(0.0, t_abs - DEPARTURE_LEAD_SEC)
         others = [s["people"] or 0 for s in states[max(0, i - 2): i]]
         log.info("departure at %.1fs: %s", t_abs, lb)
-        desk = ", ".join(lb["suspicious"]) or "посторонних предметов нет"
-        screen = "открытая рабочая программа" if lb["screen_bright"] else "экран блокировки / выключен"
+        desk = "осмотр не удался" if lb.get("failed") else ", ".join(lb["suspicious"]) or "посторонних предметов нет"
+        screen = "открытая рабочая программа" if lb["screen_bright"] else ("не проверен" if lb.get("failed") else "экран блокировки / выключен")
         note(f"Стол: {desk}; экран: {screen}", "rules")
         base_trace = [f"Сканер 4B: кассир на месте до {ts[i - 1]:.1f} с, с {t_abs:.1f} с отсутствует (2+ кадра подряд)",
                       f"Стол крупным планом (4B + эксперт 8B): {desk}",
@@ -282,7 +288,7 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
                        "evidence_t": [ts[a], ts[min(b, a + 2)]],
                        "trace": [f"Сканер 4B: сумка/верхняя одежда на рабочем месте на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
     for a, b in _runs(_smooth([s["eating"] and al for s, al in zip(states, alone)]), 2):
-        events.append({"id": "personal_items", "t": ts[a], "conf": 0.6,
+        events.append({"id": "eating_at_desk", "t": ts[a], "conf": 0.6,
                        "detail": "кассир ест или пьёт на рабочем месте во время работы с ценностями",
                        "evidence_t": [ts[a], ts[min(b, a + 2)]],
                        "trace": [f"Сканер 4B: кассир ест или пьёт на {b - a + 1} кадрах подряд ({ts[a]:.1f}–{ts[b]:.1f} с)"]})
@@ -320,14 +326,18 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
         if cnt[i - 2] == cnt[i - 1] == 1 and cnt[i] >= 2 and cnt[i + 1] >= 2 and states[i - 1]["cashier_present"]:
             checks += 1
             reads = []
-            for dt in (0.0, 1.5):  # persistence: banknotes must be seen on both reads
-                f_entry = min(frames, key=lambda f: abs(f.t - (ts[i] + dt)))
-                js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80))
-                found = js.get("objects_on_desk") if isinstance(js, dict) else None
-                objs = [str(o).lower() for o in found] if isinstance(found, list) else []
-                reads.append([to_russian(o) for o in objs
-                              if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
-                              and not any(w in o for w in ("machine", "counter", "bag", "sack", "register", "drawer"))])
+            try:
+                for dt in (0.0, 1.5):  # persistence: banknotes must be seen on both reads
+                    f_entry = min(frames, key=lambda f: abs(f.t - (ts[i] + dt)))
+                    js = vlm.parse_json(vlm.ask([f_entry.image], LEFT_PROMPT, max_tokens=80))
+                    found = js.get("objects_on_desk") if isinstance(js, dict) else None
+                    objs = [str(o).lower() for o in found] if isinstance(found, list) else []
+                    reads.append([to_russian(o) for o in objs
+                                  if any(w in o for w in ("banknote", "money", "cash", "bundle", "bill"))
+                                  and not any(w in o for w in ("machine", "counter", "bag", "sack", "register", "drawer"))])
+            except Exception:  # a model-server hiccup must not fail the whole video
+                log.exception("entry check failed at %.1fs; skipping it", ts[i])
+                continue
             money = reads[0] if all(reads) else []
             log.info("entry at %.1fs: %s", ts[i], reads)
             if money:
@@ -359,7 +369,8 @@ HYPOTHESIS = {
     "unlocked_workstation": "The cashier walks away and the laptop screen stays on with an open work program (not a lock screen).",
     "left_during_service": "The cashier walks away from the desk while a client is still in the room.",
     "phone_use": "The cashier (bank employee at the desk) holds or uses a mobile phone.",
-    "personal_items": "The cashier has personal items (bag, coat) at the workplace, or eats or drinks while working with cash.",
+    "personal_items": "The cashier has personal items (bag, coat) at the workplace.",
+    "eating_at_desk": "The cashier eats or drinks at the workplace while working with cash.",
     "outsider_in_cash_area": "An extra person, who is neither the cashier nor the client being served, is in the cash room near the cashier's desk.",
     "collection_bag": "A person brings a bag of valuables and leaves within seconds, before the cashier checks the bag and its seal in his presence.",
     "cash_exposed": "When a visitor comes in, banknotes are lying openly on the desk.",
@@ -581,12 +592,16 @@ def build_violation(ev: dict, frames: list[Frame]) -> dict:
     }
 
 
-SEC_PER_FRAME = 3.4    # measured on MacBook Air M4 (Qwen3-VL-4B 4-bit, 640 px)
+# Defaults were measured on a MacBook Air M4 (Qwen3-VL 4-bit, MLX). On another machine measure with
+# scripts/bench_vlm.py and override through the environment.
+SEC_PER_FRAME = float(os.environ.get("SEC_PER_FRAME", "3.4"))    # Qwen3-VL-4B, 640 px
 MIN_FRAMES = 6         # the scanner always reads at least this many frames, whatever the budget
-DEPARTURE_SEC = 25.0   # desk zoom (4B + 8B) + laptop locate + screen read, measured
-ENTRY_SEC = 9.0        # two desk reads when someone walks in
-WINDOW_SEC = 11.0      # one second-look window with the 8B
-JUDGE_SEC = 25.0       # one judge call pair (verify + locate) with Qwen3-VL-8B, measured 15-25 s
+MAX_FRAMES = int(os.environ.get("MAX_FRAMES", "30"))          # upper bound on frames per video
+STEP_MIN_SEC = float(os.environ.get("STEP_MIN_SEC", "1.5"))    # densest sampling: one frame per this many seconds
+DEPARTURE_SEC = float(os.environ.get("DEPARTURE_SEC", "25.0"))   # desk zoom (4B + 8B) + laptop locate + screen read
+ENTRY_SEC = float(os.environ.get("ENTRY_SEC", "9.0"))            # two desk reads when someone walks in
+WINDOW_SEC = float(os.environ.get("WINDOW_SEC", "11.0"))         # one second-look window with the 8B
+JUDGE_SEC = float(os.environ.get("JUDGE_SEC", "25.0"))           # one judge call pair (verify + locate), 15-25 s
 CHECKS_RESERVE = DEPARTURE_SEC + ENTRY_SEC
 
 
@@ -607,8 +622,8 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
     # Time kept for the desk / 8B checks, but never more than ~half the budget: with a short budget (several jury
     # videos queued at once) the scanner must still read frames instead of answering "no violation" blind.
     reserve = min(CHECKS_RESERVE + (2 * JUDGE_SEC if use_judge else 0), 0.45 * budget)
-    max_frames = int(max(MIN_FRAMES, min(30, (budget - reserve) / SEC_PER_FRAME)))
-    step = max(1.5, duration / max_frames)
+    max_frames = int(max(MIN_FRAMES, min(MAX_FRAMES, (budget - reserve) / SEC_PER_FRAME)))
+    step = max(STEP_MIN_SEC, duration / max_frames)
     picked, next_t = [], 0.0
     for f in frames:
         if f.t + 1e-6 >= next_t:
@@ -671,7 +686,12 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
         if not events and time.time() + JUDGE_SEC < deadline:
             had_departure = bool(find_departures(states))
             events = []
-            for ev in second_look(frames, duration, deadline - JUDGE_SEC):
+            try:
+                looked = second_look(frames, duration, deadline - JUDGE_SEC)
+            except Exception:  # keep what the scan found instead of failing the video
+                log.exception("second look failed")
+                looked = []
+            for ev in looked:
                 # The dedicated "cashier left" check already inspected every departure and found nothing.
                 if ev["letter"] == "a" and had_departure:
                     log.info("second look 'walked away' at %.1f ignored: departure check found nothing", ev["t"])
@@ -692,7 +712,13 @@ def analyze(path: Path, progress, budget: float | None = None) -> dict:
             stats["escalations"] += 1
             note(f"Эскалация: {REGISTRY['violations'][ev['id']]['name']} ({ev['t']:.1f} с) → Qwen3-VL-8B", "8B",
                  model="Qwen3-VL-8B", phase="judge", escalations=stats["escalations"], escalating=True)
-            ev["judge"] = judge_event(ev, frames)
+            try:
+                ev["judge"] = judge_event(ev, frames)
+            except Exception:  # the expert is unavailable: keep the finding as the scanner saw it
+                log.exception("judge failed for %s@%.1f; keeping the finding unverified", ev["id"], ev["t"])
+                note("Эксперт недоступен (ошибка модели): событие оставлено без перепроверки", "8B")
+                kept.append(ev)
+                continue
             # Any finding (including the second look) is dropped when the expert does not confirm it
             # and its own plausibility is below REJECT_BELOW.
             weak = not ev["judge"]["confirmed"] and ev["judge"]["plausibility"] < REJECT_BELOW

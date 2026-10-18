@@ -359,6 +359,21 @@
   @media (prefers-reduced-motion: reduce) { .lg, .row, .thumb { transition: background .3s; transform: none !important; } .lg .glint { display: none; } }
   .foot { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
   .note { margin-top: 16px; font-size: 12.5px; color: var(--muted); }
+  /* lg2:start ---------- Liquid glass v2: nearly clear glass, refracting rim (Chromium), specular edge ---------- */
+  .lg { background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.018)), rgba(10,12,16,.16);
+    -webkit-backdrop-filter: blur(5px) saturate(185%) brightness(1.1); backdrop-filter: blur(5px) saturate(185%) brightness(1.1);
+    text-shadow: 0 1px 10px rgba(0,0,0,.28); }
+  .lg:hover { background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.035)), rgba(10,12,16,.12); }
+  .chip.lg { background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.015)), rgba(10,12,16,.16); }
+  .lg.blue { background: linear-gradient(180deg, rgba(110,160,255,.42), rgba(59,123,246,.22)); }
+  .lg.blue:hover { background: linear-gradient(180deg, rgba(130,175,255,.52), rgba(59,123,246,.32)); }
+  /* Chromium only (set by the script): the backdrop is bent along the rim like through a lens, then lightly blurred */
+  html.lg-refract .lg[data-lgf] { -webkit-backdrop-filter: var(--lgf) blur(3px) saturate(185%) brightness(1.08);
+    backdrop-filter: var(--lgf) blur(3px) saturate(185%) brightness(1.08); }
+  @media (prefers-reduced-transparency: reduce) {
+    .lg, .chip.lg, .lg.blue { background: rgba(38,38,38,.92); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html.lg-refract .lg[data-lgf] { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+  /* lg2:end */
 </style>
 </head>
 <body data-view="uploadView">
@@ -434,7 +449,7 @@
         </div>
         <div class="rows">
           <a class="row" href="https://adilet.zan.kz/rus/docs/V1900019680" target="_blank" rel="noopener"><span class="thumb g2"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9h.01M18 15h.01"/></svg></span><span class="rbody"><h4>Ценности без присмотра</h4><span class="meta">Правила № 231, п. 20 · деньги, конверт или сумка остаются на столе</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
-          <a class="row" href="https://adilet.zan.kz/rus/docs/V1800016772" target="_blank" rel="noopener"><span class="thumb g1"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/><path d="M10 10h4"/></svg></span><span class="rbody"><h4>Компьютер не заблокирован</h4><span class="meta">Требования ИБ, п. 71 · открытая программа вместо экрана блокировки</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
+          <a class="row" href="https://adilet.zan.kz/rus/docs/V1800016772" target="_blank" rel="noopener"><span class="thumb g1"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/><path d="M10 10h4"/></svg></span><span class="rbody"><h4>Компьютер не заблокирован</h4><span class="meta">открытая программа вместо экрана блокировки · источник не определён</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
           <a class="row" href="https://adilet.zan.kz/rus/docs/V1900019680" target="_blank" rel="noopener"><span class="thumb g4"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="18" cy="9" r="2"/><path d="M16 14.5c2.5 0 5 1.5 5 4.5"/></svg></span><span class="rbody"><h4>Посторонний в кассе</h4><span class="meta">Правила № 231, п. 75 · кто‑то помимо кассира и клиента</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
           <a class="row" href="https://adilet.zan.kz/rus/docs/V1900019680" target="_blank" rel="noopener"><span class="thumb g3"><svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></span><span class="rbody"><h4>Телефон и личные вещи</h4><span class="meta">Правила № 231, п. 12 · телефон, сумка, одежда, еда на рабочем месте</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
           <a class="row" href="https://adilet.zan.kz/rus/docs/V1900019680" target="_blank" rel="noopener"><span class="thumb g5"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg></span><span class="rbody"><h4>Приём от инкассатора</h4><span class="meta">Правила № 231, пп. 24–25 · сумку передают и сразу уходят</span></span><span class="arrow lg"><svg viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></span></a>
@@ -621,7 +636,7 @@ tick(); setInterval(tick, 1000);
 const NORMS = [["Правила № 231 · п. 20", "Ценности в запираемом хранилище"], ["Правила № 231 · п. 22", "Не покидать рабочее место"],
   ["Правила № 231 · п. 12", "Личные вещи вне кассы"], ["Правила № 231 · п. 75", "Доступ только ответственным"],
   ["Правила № 231 · пп. 24–25", "Приём сумки от инкассатора"], ["Правила № 231 · п. 31", "Пересчёт при клиенте"],
-  ["Требования ИБ · п. 71", "Блокировка рабочей станции"], ["Правила № 14", "Охрана кассовых помещений"]];
+  ["Требования ИБ № 48", "Утратили силу, как основание не используются"], ["Правила № 14", "Охрана кассовых помещений"]];
 $("track").innerHTML = NORMS.concat(NORMS).map(([a, b]) => `<div class="norm"><span>${a}</span><b>${b}</b></div>`).join("");
 
 // Top bar turns into frosted glass once the page scrolls off the video header
@@ -968,6 +983,100 @@ document.getElementById("hwfUp").onclick = () => window.scrollTo({ top: 0, behav
   });
   document.querySelectorAll('a[href="#top"]').forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
 })();
+// lg2:start Liquid glass v2: a refraction map per glass element. Chromium only; elsewhere the CSS blur fallback stays.
+(function lensGlass() {
+  const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+  if (!brands.some((b) => /Chromium|Google Chrome|Microsoft Edge/.test(b.brand))) return;
+  if (window.matchMedia("(prefers-reduced-transparency: reduce)").matches) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.cssText = "position:absolute;width:0;height:0;pointer-events:none";
+  const defs = document.createElementNS(NS, "defs");
+  svg.appendChild(defs); document.body.appendChild(svg);
+  document.documentElement.classList.add("lg-refract");
+  let counter = 0;
+
+  // Displacement map of a rounded rectangle. A pixel at depth d inside the border is shifted outward with a smooth
+  // falloff over `bezel` px, so the backdrop looks bent along the rim, like through the edge of a glass lens.
+  function lensMap(w, h, radius, bezel) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), img = g.createImageData(w, h), px = img.data;
+    const hx = w / 2, hy = h / 2, k = Math.min(radius, hx, hy);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = x + 0.5 - hx, dy = y + 0.5 - hy;
+        const qx = Math.abs(dx) - (hx - k), qy = Math.abs(dy) - (hy - k);
+        const ox = Math.max(qx, 0), oy = Math.max(qy, 0), len = Math.hypot(ox, oy);
+        const depth = -(len + Math.min(Math.max(qx, qy), 0) - k);   // distance from the edge, px (< 0 outside the shape)
+        let nx = 0, ny = 0;
+        if (len > 0) { nx = (ox / len) * Math.sign(dx); ny = (oy / len) * Math.sign(dy); }
+        else if (qx > qy) nx = Math.sign(dx); else ny = Math.sign(dy);
+        const t = Math.min(1, Math.max(0, 1 - depth / bezel)), m = t * t * (3 - 2 * t);
+        const i = (y * w + x) * 4;
+        px[i] = 128 + 127 * nx * m; px[i + 1] = 128 + 127 * ny * m; px[i + 2] = 128; px[i + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL();
+  }
+
+  // Chromatic dispersion (idea from the freefrontend "Distortion Card" demo): red, green and blue are displaced by
+  // slightly different amounts, so the rim shows a faint colour fringe, like light splitting in thick glass.
+  const SPLIT = [1, 1.14, 1.28], CH = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  function svgEl(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+  function build(el) {
+    const r = el.getBoundingClientRect(), w = Math.round(el.offsetWidth || r.width), h = Math.round(el.offsetHeight || r.height);
+    if (w < 12 || h < 12) return;
+    const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || h / 2;
+    const bezel = Math.min(12, h / 2, w / 2), scale = Math.min(16, Math.max(8, h * 0.28));
+    let id = el.dataset.lgf, f;
+    if (!id) {
+      id = "lgf" + counter++; el.dataset.lgf = id;
+      f = svgEl("filter", { id, x: "0", y: "0", width: "1", height: "1", "color-interpolation-filters": "sRGB" });
+      f.append(svgEl("feImage", { result: "map", preserveAspectRatio: "none" }));
+      ["r", "g", "b"].forEach((c, i) => {
+        f.append(svgEl("feDisplacementMap", { in: "SourceGraphic", in2: "map", xChannelSelector: "R", yChannelSelector: "G", result: "d" + c }));
+        const m = CH[i];
+        f.append(svgEl("feColorMatrix", { in: "d" + c, type: "matrix", result: c,
+          values: [m[0], 0, 0, 0, 0, 0, m[1], 0, 0, 0, 0, 0, m[2], 0, 0, 0, 0, 0, 1, 0].join(" ") }));
+      });
+      f.append(svgEl("feBlend", { in: "r", in2: "g", mode: "screen", result: "rg" }));
+      f.append(svgEl("feBlend", { in: "rg", in2: "b", mode: "screen" }));
+      defs.appendChild(f);
+      el.style.setProperty("--lgf", "url(#" + id + ")");
+      el._lgBase = scale; el._lgBoost = 1;
+      // the refraction grows a little under the pointer (idea from the circular-button demo)
+      const tween = (to) => {
+        const from = el._lgBoost, t0 = performance.now();
+        const step = (t) => { const k = Math.min(1, (t - t0) / 160); el._lgBoost = from + (to - from) * k; setScale(el); if (k < 1) requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+      };
+      el.addEventListener("pointerenter", () => tween(1.4)); el.addEventListener("pointerleave", () => tween(1));
+    } else f = defs.querySelector("#" + id);
+    el._lgBase = scale; el._lgF = f;
+    const im = f.querySelector("feImage");
+    im.setAttribute("x", "0"); im.setAttribute("y", "0"); im.setAttribute("width", w); im.setAttribute("height", h);
+    im.setAttribute("href", lensMap(w, h, radius, bezel));
+    setScale(el);
+    el.dataset.lgw = w + "x" + h;
+  }
+  function setScale(el) {
+    const f = el._lgF || defs.querySelector("#" + el.dataset.lgf); if (!f) return;
+    f.querySelectorAll("feDisplacementMap").forEach((dm, i) => dm.setAttribute("scale", (el._lgBase * el._lgBoost * SPLIT[i]).toFixed(2)));
+  }
+
+  const queued = new Set();
+  function schedule(el) {
+    if (queued.has(el)) return;
+    queued.add(el);
+    requestAnimationFrame(() => { queued.delete(el); if ((el.offsetWidth + "x" + el.offsetHeight) !== el.dataset.lgw) build(el); });
+  }
+  const ro = new ResizeObserver((entries) => entries.forEach((e) => schedule(e.target)));
+  document.querySelectorAll(".lg").forEach((el) => { ro.observe(el); schedule(el); });
+})();
+// lg2:end
 </script>
 </body>
 </html>

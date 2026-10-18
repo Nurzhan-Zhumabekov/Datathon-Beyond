@@ -7,8 +7,10 @@ examples/demo_*.csv
 *.mov
 *.mp4
 
-# Веса моделей (скачиваются scripts/download_models.sh)
+# Веса моделей (скачиваются scripts/download_models.sh, scripts/download_gguf.ps1)
 models/
+# Скачанный llama-server (Windows)
+tools/
 
 # Окружение и кэши
 .venv/

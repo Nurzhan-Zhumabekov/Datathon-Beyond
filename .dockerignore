@@ -1,0 +1,13 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+data
+models
+tools
+out
+tests
+.pytest_tmp
+*.mov
+*.mp4
+.env
