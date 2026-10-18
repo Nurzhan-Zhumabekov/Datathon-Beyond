@@ -1,6 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/ui/:path*", "destination": "https://proceed-optimization-momentum-vanilla.trycloudflare.com/ui/:path*" },
-    { "source": "/health", "destination": "https://proceed-optimization-momentum-vanilla.trycloudflare.com/health" }
-  ]
-}
