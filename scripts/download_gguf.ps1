@@ -12,5 +12,6 @@ $base = "https://huggingface.co/Qwen/Qwen3-VL-$s-Instruct-GGUF/resolve/main"
 foreach ($f in @("Qwen3VL-$s-Instruct-Q4_K_M.gguf", "mmproj-Qwen3VL-$s-Instruct-F16.gguf")) {
     # -C - resumes an interrupted download
     curl.exe -L -C - --fail -o "models\$f" "$base/$f"
+    if ($LASTEXITCODE -ne 0) { throw "download of $f failed (curl exit code $LASTEXITCODE)" }
 }
 Get-ChildItem models\*.gguf | Select-Object Name, @{n = "MB"; e = { [int]($_.Length / 1MB) }}

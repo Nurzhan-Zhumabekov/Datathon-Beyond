@@ -159,3 +159,34 @@ def test_dotted_hosts_are_never_allowed(monkeypatch):
     monkeypatch.setenv("VLM_ALLOWED_HOSTS", "api.example.com, llama")
     with pytest.raises(RuntimeError, match="local"):
         vlm._local_url("scan")
+
+
+@pytest.mark.parametrize("entry", ["127.0.0.1", "8.8.8.8", "[::1]", "*", "llama.", "ллама", "llama.example.com"])
+def test_odd_allowlist_entries_are_ignored(monkeypatch, entry):
+    monkeypatch.setenv("VLM_ALLOWED_HOSTS", entry)
+    assert vlm._allowed_hosts() == vlm._LOOPBACK
+
+
+@pytest.mark.parametrize("url", ["http://localhost:8081", "http://127.0.0.1:8081", "http://[::1]:8081"])
+def test_loopback_urls_are_allowed(monkeypatch, url):
+    monkeypatch.setattr(config, "VLM_URL", url)
+    assert vlm._local_url("scan") == url
+
+
+@pytest.mark.parametrize("url", ["https://127.0.0.1:8081", "ftp://localhost", "localhost:8081", "//localhost"])
+def test_non_http_schemes_are_refused(monkeypatch, url):
+    monkeypatch.setattr(config, "VLM_URL", url)
+    with pytest.raises(RuntimeError):
+        vlm._local_url("scan")
+
+
+def test_model_requests_ignore_proxy_environment(monkeypatch):
+    import httpx
+    seen = []
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setattr(config, "VLM_BACKEND", "openai")
+    monkeypatch.setattr(config, "VLM_URL", "http://127.0.0.1:8081")
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: seen.append(k.get("trust_env")) or type("R", (), {"status_code": 200})())
+    vlm._reach.clear()
+    assert vlm._reachable("http://127.0.0.1:8081")
+    assert seen == [False]

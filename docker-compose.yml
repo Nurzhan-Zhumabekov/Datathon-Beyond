@@ -13,6 +13,12 @@ services:
     volumes:
       - ./models:/models:ro
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     deploy:
       resources:
         reservations:
@@ -30,5 +36,6 @@ services:
     volumes:
       - ./data:/data
     depends_on:
-      - llama
+      llama:
+        condition: service_healthy
     restart: unless-stopped

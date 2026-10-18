@@ -42,20 +42,29 @@ def _url(kind: str) -> str:
     return (config.VLM_URL if kind == "scan" else config.JUDGE_URL).rstrip("/")
 
 
+_SERVICE_NAME = re.compile(r"[a-z][a-z0-9-]{0,62}")  # starts with a letter: no numeric or IP-like entries
+
+
 def _allowed_hosts() -> set[str]:
     """Loopback plus single-label service names from VLM_ALLOWED_HOSTS (Docker Compose: the model server is `llama`).
-    A name with a dot is never accepted, so a typo cannot point the frames at an internet host."""
-    extra = {h.strip() for h in os.environ.get("VLM_ALLOWED_HOSTS", "").split(",") if h.strip()}
-    for h in [h for h in extra if "." in h]:
-        log.error("VLM_ALLOWED_HOSTS entry %r ignored: only single-label service names are allowed", h)
-        extra.discard(h)
+    Anything else (dots, digits first, IPv6, wildcards) is ignored, so a typo cannot point the frames at an internet host."""
+    extra = set()
+    for h in os.environ.get("VLM_ALLOWED_HOSTS", "").split(","):
+        h = h.strip().lower()
+        if not h:
+            continue
+        if _SERVICE_NAME.fullmatch(h):
+            extra.add(h)
+        else:
+            log.error("VLM_ALLOWED_HOSTS entry %r ignored: only single-label service names are allowed", h)
     return _LOOPBACK | extra
 
 
 def _local_url(kind: str) -> str:
     url = _url(kind)
-    if urlparse(url).hostname not in _allowed_hosts():
-        raise RuntimeError(f"{kind} model URL {url!r} is not a local address: video frames must stay on this machine")
+    parts = urlparse(url)
+    if parts.scheme != "http" or parts.hostname not in _allowed_hosts():
+        raise RuntimeError(f"{kind} model URL {url!r} is not a local http address: video frames must stay on this machine")
     return url
 
 
@@ -67,7 +76,7 @@ def _reachable(url: str) -> bool:
         return hit[1]
     import httpx
     try:
-        ok = httpx.get(url + "/v1/models", timeout=2.0).status_code == 200
+        ok = httpx.get(url + "/v1/models", timeout=2.0, trust_env=False).status_code == 200
     except httpx.HTTPError:
         ok = False
     _reach[url] = (now, ok)
@@ -122,7 +131,7 @@ def _ask_openai(images: list[Image.Image], question: str, max_tokens: int, kind:
     with _lock:
         for attempt in (1, 2):
             try:
-                r = httpx.post(url + "/v1/chat/completions", json=body, timeout=config.VLM_TIMEOUT_SEC)
+                r = httpx.post(url + "/v1/chat/completions", json=body, timeout=config.VLM_TIMEOUT_SEC, trust_env=False)
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
                 # The model server may be restarting. One retry; a timeout is not retried because that would
                 # double the time spent on the frame.

@@ -150,8 +150,11 @@ def _cleanup_loop() -> None:
     while True:
         now = time.time()
         for p in config.UPLOAD_DIR.glob("*"):
-            if now - p.stat().st_mtime > config.KEEP_UI_VIDEOS_SEC:
-                p.unlink(missing_ok=True)
+            try:  # the worker may delete a file between glob and stat; one bad file must not kill the thread
+                if now - p.stat().st_mtime > config.KEEP_UI_VIDEOS_SEC:
+                    p.unlink(missing_ok=True)
+            except OSError:
+                continue
         time.sleep(300)
 
 
