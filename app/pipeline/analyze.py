@@ -245,13 +245,14 @@ def detect_events(states: list[dict], frames: list[Frame], deadline: float) -> l
             lb = check_left_behind(f_after, f_later if f_later.t != f_after.t else None)
         except Exception:  # a model-server hiccup must not turn the whole video into "failed"
             log.exception("desk check failed at %.1fs; skipping this departure", t_abs)
-            note("Осмотр стола не удался (ошибка модели), пропущен", "rules")
-            continue
+            note("Осмотр стола не удался (ошибка модели): события по столу и экрану не выводятся", "rules")
+            # The departure itself is still known from the timeline: keep deriving left_during_service below.
+            lb = {"suspicious": [], "screen_bright": False, "failed": True}
         tc = max(0.0, t_abs - DEPARTURE_LEAD_SEC)
         others = [s["people"] or 0 for s in states[max(0, i - 2): i]]
         log.info("departure at %.1fs: %s", t_abs, lb)
-        desk = ", ".join(lb["suspicious"]) or "посторонних предметов нет"
-        screen = "открытая рабочая программа" if lb["screen_bright"] else "экран блокировки / выключен"
+        desk = "осмотр не удался" if lb.get("failed") else ", ".join(lb["suspicious"]) or "посторонних предметов нет"
+        screen = "открытая рабочая программа" if lb["screen_bright"] else ("не проверен" if lb.get("failed") else "экран блокировки / выключен")
         note(f"Стол: {desk}; экран: {screen}", "rules")
         base_trace = [f"Сканер 4B: кассир на месте до {ts[i - 1]:.1f} с, с {t_abs:.1f} с отсутствует (2+ кадра подряд)",
                       f"Стол крупным планом (4B + эксперт 8B): {desk}",

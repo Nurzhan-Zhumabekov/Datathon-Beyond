@@ -40,3 +40,18 @@ def test_failed_desk_check_skips_the_departure_instead_of_failing(monkeypatch):
     monkeypatch.setattr(analyze, "note", lambda *a, **k: None)
     events = analyze.detect_events(_states(), frames, deadline=1e12)  # must not raise
     assert events == []
+
+
+def test_failed_desk_check_still_reports_leaving_during_service(monkeypatch):
+    from PIL import Image
+    from app.video import Frame
+    frames = [Frame(t=i * 0.5, image=Image.new("RGB", (32, 32))) for i in range(36)]
+    states = [dict(s, people=(2 if s["cashier_present"] else 0)) for s in _states()]  # a visitor is in the room
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("model server answered 500")
+
+    monkeypatch.setattr(analyze, "check_left_behind", boom)
+    monkeypatch.setattr(analyze, "note", lambda *a, **k: None)
+    events = analyze.detect_events(states, frames, deadline=1e12)
+    assert [e["id"] for e in events] == ["left_during_service"]
